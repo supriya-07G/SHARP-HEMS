@@ -108,6 +108,14 @@ ILLEGAL_ACTION_MARGIN = 0.25       # how far below the best legal action is enou
 
 SHOULD_RUN_ABLATIONS = True
 
+# Hyperparameter search, section 7.2. Design by Gudala Padma Pranitha (PR #1).
+# Roughly doubles runtime; the defaults are included as trial 0 so the incumbent
+# is always beaten on equal terms, or not beaten at all.
+SHOULD_RUN_HP_SEARCH = True
+HP_SEARCH_TRIALS = 10             # trial 0 is the section-1 configuration
+HP_SEARCH_STEPS = 4000            # reduced conservative budget per trial
+HP_SEARCH_SEED = 123
+
 # Balanced BATCH sampling, not just a balanced loss.
 #
 # Reweighting the loss by inverse frequency still leaves every batch 83 per cent
@@ -118,10 +126,12 @@ SHOULD_RUN_ABLATIONS = True
 # Measured and REJECTED. Oversampling rows that contain a rare action moved dim
 # recall almost not at all (0.011 -> 0.015) while costing six points of OFF
 # recall, taking three-level balanced accuracy from 0.6173 to 0.5922. REDUCED is
-# almost absent by DESIGN - no critical load may be dimmed, so only 37 air
-# coolers of 3,353 devices can dim at all - and no amount of resampling teaches
-# a class the design removed. It only distorts the distribution the value
-# function is fitted on.
+# almost absent by DESIGN. 2,460 of 4,124 devices can physically dim, but they
+# are overwhelmingly ceiling fans, LED bulbs and tubes - all critical loads, and
+# a critical load is never dimmed. After the deployment mask exactly 44 air
+# coolers can be dimmed at all. No amount of resampling teaches a class the
+# design removed; it only distorts the distribution the value function is
+# fitted on.
 USE_BALANCED_SAMPLING = False
 LEVEL_WEIGHT_NORM = 'min'          # 'mean' or 'min'; see level_weights()
 # Multiplier on the conservative term. This is the knob that controls CONTROL
@@ -742,9 +752,21 @@ def sampling_probabilities(train_data, weights):
 
 
 def train_policy(train_data, validation_data, *, alpha, warm_start, steps,
-                 balance, seed=SEED, label='run'):
-    net = BranchingDuelingNetwork(train_data['state'].shape[1], seed=seed)
-    target_net = BranchingDuelingNetwork(train_data['state'].shape[1], seed=seed)
+                 balance, seed=SEED, label='run', hidden=HIDDEN,
+                 learning_rate=LEARNING_RATE, reward_scale=None):
+    # hidden / learning_rate / reward_scale are parameters rather than globals
+    # so the hyperparameter search in 7.2 can vary them. Passing nothing
+    # reproduces the section-1 configuration exactly.
+    #
+    # reward_scale only divides the reward - MEAN and SD come from the state and
+    # do not depend on it - so a trial can rescale in place, deterministically,
+    # without disturbing the normalisation every trial shares.
+    if reward_scale is not None:
+        for data in (train_data, validation_data):
+            data['scaled_reward'] = data['reward'] / reward_scale
+    net = BranchingDuelingNetwork(train_data['state'].shape[1], hidden=hidden, seed=seed)
+    target_net = BranchingDuelingNetwork(train_data['state'].shape[1],
+                                         hidden=hidden, seed=seed)
     target_net.p = {k: v.copy() for k, v in net.p.items()}
     rng = np.random.default_rng(seed)
     weights = level_weights(train_data)[0] if balance else None
@@ -814,7 +836,7 @@ def train_policy(train_data, validation_data, *, alpha, warm_start, steps,
             recent.append(net.update(
                 state[index], actions[index], reward[index], present[index],
                 legal[index], alpha=1.0, use_td=False, level_weight=weights,
-                forbidden=forbidden[index],
+                forbidden=forbidden[index], lr=learning_rate,
                 illegal_penalty=ILLEGAL_ACTION_PENALTY))
             if step % 1000 == 0 or step == warm_start:
                 target_net.p = {k: v.copy() for k, v in net.p.items()}
@@ -828,7 +850,7 @@ def train_policy(train_data, validation_data, *, alpha, warm_start, steps,
                             reward, done, GAMMA, index)
         recent.append(net.update(
             state[index], actions[index], y, present[index], legal[index],
-            alpha=alpha, use_td=True, level_weight=weights,
+            alpha=alpha, use_td=True, level_weight=weights, lr=learning_rate,
             forbidden=forbidden[index], illegal_penalty=ILLEGAL_ACTION_PENALTY))
         if step % 250 == 0:
             target_net.p = {k: v.copy() for k, v in net.p.items()}
@@ -895,6 +917,109 @@ useless. That is what inverse-frequency weighting exists to prevent.
 
 `illegal_greedy_picks` must be **0**. Anything else means the legality mask is
 not being applied where it should be.
+"""),
+
+    markdown("""
+## 7.2 Hyperparameter search
+
+Search design contributed by **Gudala Padma Pranitha**. Random search over the
+knobs earlier ablations showed were sensitive, deliberately **excluding**
+`PEAK_WEIGHT`, `COST_WEIGHT` and the illegal-action penalty — those are
+reward-shaping and safety choices grounded in the domain reasoning above, not
+free parameters to search over. That judgement is hers and it is right.
+
+**One thing changed from the original, and it matters.** Her version picks the
+winner by balanced accuracy. That cannot work here: the logged action equals the
+occupant's request **96.35 %** of the time, so agreement with logged behaviour
+mostly measures *how closely a controller reproduces doing nothing*. A search
+maximising it walks away from demand response.
+
+An in-notebook proxy for control quality was tried and **rejected** — scoring
+the fraction of discretionary load shed during peaks against off-peak ranked
+five known checkpoints at Spearman **−0.900** versus the simulator, almost
+perfectly inverted. A policy that sheds hard during a peak looks well targeted
+and simply gets overridden, so no peak is avoided.
+
+So this search does what can be done honestly inside a notebook: it trains the
+trials, gates them, uses balanced accuracy **only as a sanity filter** (a model
+near the 0.3333 floor has not learned the state space), and hands the survivors
+on. **Control quality is decided in the simulator, offline**, by
+`scripts/final_model_selection_v1.py`, across several seeds — the four leading
+checkpoints there sit within 0.002 kW of each other while changing the seed
+moves any one of them by more than 0.1 kW, so single-run differences are noise.
+
+Set `SHOULD_RUN_HP_SEARCH = False` in section 1 to skip.
+"""),
+
+    code("""
+HP_SEARCH_SPACE = {
+    'alpha':      [0.5, 1.0, 1.5, 2.0],
+    'warm_start': [1000, 2000, 3000],
+    'hidden':     [64, 128, 256],
+    'learning_rate': [1e-4, 3e-4, 1e-3],
+    'reward_scale':  [5.0, 10.0, 20.0],
+}
+HP_DEFAULTS = {'alpha': CQL_ALPHA, 'warm_start': WARM_START_UPDATES,
+               'hidden': HIDDEN, 'learning_rate': LEARNING_RATE,
+               'reward_scale': REWARD_SCALE}
+HP_SANITY_FLOOR = 0.45      # chance is 0.3333; below this nothing was learned
+
+hp_results = []
+if SHOULD_RUN_HP_SEARCH:
+    rng = np.random.default_rng(HP_SEARCH_SEED)
+    combos, seen = [('defaults', dict(HP_DEFAULTS))], {tuple(sorted(HP_DEFAULTS.items()))}
+    while len(combos) < HP_SEARCH_TRIALS:
+        combo = {k: v[int(rng.integers(len(v)))] for k, v in HP_SEARCH_SPACE.items()}
+        key = tuple(sorted(combo.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        combos.append((f'trial{len(combos)}', combo))
+
+    for label, combo in combos:
+        print(f'--- {label}: {combo} ---')
+        net, target_net, _ = train_policy(
+            train, validation, steps=HP_SEARCH_STEPS, label=label,
+            alpha=combo['alpha'], warm_start=combo['warm_start'], balance=True,
+            hidden=combo['hidden'], learning_rate=combo['learning_rate'],
+            reward_scale=combo['reward_scale'])
+        m = evaluate(net, target_net, validation)
+        gated = []
+        if m['illegal_greedy_picks']:
+            gated.append(f"{m['illegal_greedy_picks']} illegal picks")
+        if m['balanced_accuracy'] < HP_SANITY_FLOOR:
+            gated.append(f"balanced {m['balanced_accuracy']:.4f} below floor")
+        hp_results.append({'label': label, **combo,
+                           'balanced_accuracy': m['balanced_accuracy'],
+                           'td_error_non_terminal': m['td_error_non_terminal'],
+                           'dim_recall': m['recall_by_level']['reduced'],
+                           'illegal_greedy_picks': m['illegal_greedy_picks'],
+                           'status': 'GATED' if gated else 'PASS',
+                           'gate_failures': gated})
+        print(f"  {label}: balanced {m['balanced_accuracy']:.4f}  "
+              f"{'GATED' if gated else 'PASS'}\\n")
+
+    hp_table = pd.DataFrame(hp_results).sort_values(
+        'balanced_accuracy', ascending=False)
+    display(hp_table.round(4))
+    incumbent = next(r for r in hp_results if r['label'] == 'defaults')
+    ahead = [r for r in hp_results
+             if r['status'] == 'PASS'
+             and r['balanced_accuracy'] > incumbent['balanced_accuracy']]
+    print(f"incumbent (defaults): {incumbent['balanced_accuracy']:.4f}")
+    print(f"trials above it:      {len(ahead)}")
+    print()
+    print('Balanced accuracy here is a SANITY FILTER, not the objective. A '
+          'higher number is NOT a better controller. Carry the survivors into '
+          'the simulator and let final_model_selection_v1.py decide.')
+
+    # Trials rescale scaled_reward in place. Put it back, or section 8 onwards
+    # silently trains against whichever scale the last trial happened to draw.
+    for _data in (train, validation):
+        _data['scaled_reward'] = _data['reward'] / REWARD_SCALE
+    print(f'reward scale restored to {REWARD_SCALE}')
+else:
+    print('hyperparameter search skipped (SHOULD_RUN_HP_SEARCH = False)')
 """),
 
     markdown("""

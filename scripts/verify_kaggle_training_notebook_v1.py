@@ -25,6 +25,13 @@ def substitute(source, dataset, working, quick):
                         source, flags=re.M)
         source = re.sub(r'^CONSERVATIVE_UPDATES = \d+', 'CONSERVATIVE_UPDATES = 60',
                         source, flags=re.M)
+        # The hyperparameter search is 10 trials; at full budget it dominates
+        # verification runtime. Shrink the trial count and the per-trial budget,
+        # but never to zero - the point is that every code path still executes.
+        source = re.sub(r'^HP_SEARCH_TRIALS = \d+', 'HP_SEARCH_TRIALS = 2',
+                        source, flags=re.M)
+        source = re.sub(r'^HP_SEARCH_STEPS = \d+', 'HP_SEARCH_STEPS = 40',
+                        source, flags=re.M)
         source = re.sub(r'^ABLATION_STEPS = \d+', 'ABLATION_STEPS = 40',
                         source, flags=re.M)
         source = source.replace('for step in range(1, 4001):',

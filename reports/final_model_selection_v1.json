@@ -1,0 +1,132 @@
+{
+  "status": "FINAL_MODEL_SELECTED",
+  "criterion": {
+    "gates": [
+      "necessity_shed_while_entitled == 0",
+      "unserved_kwh <= baseline",
+      "infeasible_steps == 0",
+      "discomfort <= baseline * 1.02"
+    ],
+    "score": "lowest peak_kw, tie-broken on peak_to_average",
+    "explicitly_not_a_criterion": {
+      "balanced_accuracy": "The logged action equals the occupant request 96.35 % of the time, so agreement with logged behaviour mostly measures how closely a controller reproduces doing nothing. It is a sanity check, not a quality metric.",
+      "cost_inr": "APCPDCL domestic tariff is telescopic on monthly units with no time-of-day rate, so shifting load in time cannot save the household money."
+    }
+  },
+  "episodes_per_seed": 60,
+  "seeds": [
+    7,
+    99,
+    2024
+  ],
+  "split": "validation",
+  "test_split_used": false,
+  "absolute_means": {
+    "no demand response": {
+      "peak_kw": 0.43549447817734865,
+      "peak_to_average": 2.7519793100720773,
+      "cost_inr": 21.631272262211933,
+      "import_kwh": 4.1266224490811645,
+      "overrides": 0.16666666666666666,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 21233
+    },
+    "rule-based": {
+      "peak_kw": 0.4255394636986806,
+      "peak_to_average": 2.9096768728611555,
+      "cost_inr": 20.59661790697324,
+      "import_kwh": 3.909549942557081,
+      "overrides": 0.17777777777777778,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 21233
+    },
+    "shipped (handover)": {
+      "peak_kw": 0.39861382287448577,
+      "peak_to_average": 2.630195725757707,
+      "cost_inr": 21.416384407672208,
+      "import_kwh": 4.08912101935942,
+      "overrides": 0.2611111111111111,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 20182
+    },
+    "reward_driven": {
+      "peak_kw": 0.40979719536831033,
+      "peak_to_average": 2.7193747704607953,
+      "cost_inr": 21.268838742270926,
+      "import_kwh": 4.04388929679628,
+      "overrides": 0.9388888888888888,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 14525
+    },
+    "candidate_pranitha_config": {
+      "peak_kw": 0.40044889387363725,
+      "peak_to_average": 2.6533471234366246,
+      "cost_inr": 21.373841676717323,
+      "import_kwh": 4.075469422345614,
+      "overrides": 0.2833333333333334,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 18113
+    },
+    "sweep_2.5": {
+      "peak_kw": 0.39837359058156857,
+      "peak_to_average": 2.6327808993638393,
+      "cost_inr": 21.418991388438283,
+      "import_kwh": 4.0889535659859915,
+      "overrides": 0.25,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 20385
+    },
+    "sweep_5.0": {
+      "peak_kw": 0.39837359058156857,
+      "peak_to_average": 2.632057017116532,
+      "cost_inr": 21.425532782195784,
+      "import_kwh": 4.090145355093301,
+      "overrides": 0.2333333333333333,
+      "discomfort": 10.656351992092018,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 20476
+    }
+  },
+  "gate_failures": {
+    "shipped (handover)": [],
+    "reward_driven": [],
+    "candidate_pranitha_config": [],
+    "sweep_2.5": [],
+    "sweep_5.0": []
+  },
+  "selected": "sweep_5.0",
+  "selected_checkpoint": "models/sweep_5.0.npz",
+  "ranking": [
+    "sweep_5.0",
+    "sweep_2.5",
+    "shipped (handover)",
+    "candidate_pranitha_config",
+    "reward_driven"
+  ],
+  "limitations": [
+    "Simulator evaluation on held-out validation household-days, not field evidence.",
+    "The occupant, including every override, is synthetic.",
+    "Appliance power values are proxies for most devices."
+  ],
+  "approved_for_deployment": false
+}

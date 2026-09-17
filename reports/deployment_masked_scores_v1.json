@@ -1,0 +1,284 @@
+{
+  "status": "SCORED_UNDER_BOTH_MASKS",
+  "note": "Physical-mask accuracy is inflated: it credits choosing actions the deployment mask forbids. Quote the deployment column.",
+  "split": "validation",
+  "test_split_used": false,
+  "results": {
+    "handover/sharp_rl_v1/sharp_policy.npz": {
+      "physical": {
+        "mask": "physical",
+        "balanced_accuracy": 0.766096203818337,
+        "raw_agreement": 0.8592448417275407,
+        "recall_by_level": {
+          "off": 0.8814007737139473,
+          "on": 0.7683465211074909,
+          "reduced": 0.6485413166335726
+        },
+        "greedy_share": {
+          "off": 0.7455746187363834,
+          "on": 0.15246339548891452,
+          "reduced": 0.10196198577470204
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 4048,
+        "necessity_dimmed": 50106
+      },
+      "deployment": {
+        "mask": "deployment",
+        "balanced_accuracy": 0.6232361167035035,
+        "raw_agreement": 0.9009355376137383,
+        "recall_by_level": {
+          "off": 0.9232809900842323,
+          "on": 0.9341316520684354,
+          "reduced": 0.012295707957843287
+        },
+        "greedy_share": {
+          "off": 0.7792475650390875,
+          "on": 0.21912445533769062,
+          "reduced": 0.0016279796232218377
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 0,
+        "necessity_dimmed": 0
+      }
+    },
+    "models/sharp_bdq_v3_hp_trial4/checkpoint.npz": {
+      "physical": {
+        "mask": "physical",
+        "balanced_accuracy": 0.7534909140498653,
+        "raw_agreement": 0.8590606177111367,
+        "recall_by_level": {
+          "off": 0.8842390087602522,
+          "on": 0.7555677795173416,
+          "reduced": 0.6206659538720024
+        },
+        "greedy_share": {
+          "off": 0.7514818018710753,
+          "on": 0.14993031526336026,
+          "reduced": 0.09858788286556452
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 4620,
+        "necessity_dimmed": 48807
+      },
+      "deployment": {
+        "mask": "deployment",
+        "balanced_accuracy": 0.614891673499815,
+        "raw_agreement": 0.8988249711649365,
+        "recall_by_level": {
+          "off": 0.9247711236666434,
+          "on": 0.911197619148366,
+          "reduced": 0.00870627768443562
+        },
+        "greedy_share": {
+          "off": 0.7851467384339357,
+          "on": 0.21399822183775472,
+          "reduced": 0.0008550397283096245
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 0,
+        "necessity_dimmed": 0
+      }
+    },
+    "models/sharp_bdq_v3_hp_trial3/checkpoint.npz": {
+      "physical": {
+        "mask": "physical",
+        "balanced_accuracy": 0.7509765746805571,
+        "raw_agreement": 0.8208621683967705,
+        "recall_by_level": {
+          "off": 0.8362490039696774,
+          "on": 0.76126602631913,
+          "reduced": 0.6554146937528639
+        },
+        "greedy_share": {
+          "off": 0.707860758682558,
+          "on": 0.16421969114443163,
+          "reduced": 0.12791955017301038
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 4598,
+        "necessity_dimmed": 63066
+      },
+      "deployment": {
+        "mask": "deployment",
+        "balanced_accuracy": 0.614104281859403,
+        "raw_agreement": 0.8732959278482635,
+        "recall_by_level": {
+          "off": 0.8888779221904723,
+          "on": 0.9409864737161314,
+          "reduced": 0.012448449671605315
+        },
+        "greedy_share": {
+          "off": 0.7491369505318467,
+          "on": 0.2492290625400487,
+          "reduced": 0.0016339869281045752
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 0,
+        "necessity_dimmed": 0
+      }
+    },
+    "models/sharp_bdq_v3_hp_defaults/checkpoint.npz": {
+      "physical": {
+        "mask": "physical",
+        "balanced_accuracy": 0.7490374903359376,
+        "raw_agreement": 0.8420419229783417,
+        "recall_by_level": {
+          "off": 0.863227884515851,
+          "on": 0.7577963017814073,
+          "reduced": 0.6260882847105544
+        },
+        "greedy_share": {
+          "off": 0.7342007881584006,
+          "on": 0.15477821030372935,
+          "reduced": 0.11102100153787005
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 5616,
+        "necessity_dimmed": 54771
+      },
+      "deployment": {
+        "mask": "deployment",
+        "balanced_accuracy": 0.6173414244768919,
+        "raw_agreement": 0.8935565647827759,
+        "recall_by_level": {
+          "off": 0.915929022457926,
+          "on": 0.9255560727231695,
+          "reduced": 0.01053917824957996
+        },
+        "greedy_share": {
+          "off": 0.7749603517877739,
+          "on": 0.2236940119184929,
+          "reduced": 0.0013456362937331796
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 0,
+        "necessity_dimmed": 0
+      }
+    },
+    "models/sharp_bdq_v3_hp_trial6/checkpoint.npz": {
+      "physical": {
+        "mask": "physical",
+        "balanced_accuracy": 0.748074992461201,
+        "raw_agreement": 0.8375224272715622,
+        "recall_by_level": {
+          "off": 0.8593978319639671,
+          "on": 0.7460612984668331,
+          "reduced": 0.6387658469528028
+        },
+        "greedy_share": {
+          "off": 0.7307646097654749,
+          "on": 0.15557117454825067,
+          "reduced": 0.11366421568627451
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 5117,
+        "necessity_dimmed": 56018
+      },
+      "deployment": {
+        "mask": "deployment",
+        "balanced_accuracy": 0.6152245697606324,
+        "raw_agreement": 0.8934063821607074,
+        "recall_by_level": {
+          "off": 0.9171976822284117,
+          "on": 0.9168676568075713,
+          "reduced": 0.011608370245914159
+        },
+        "greedy_share": {
+          "off": 0.777681660899654,
+          "on": 0.22082652505446623,
+          "reduced": 0.00149181404587979
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 0,
+        "necessity_dimmed": 0
+      }
+    },
+    "models/sharp_bdq_v3_hp_trial9/checkpoint.npz": {
+      "physical": {
+        "mask": "physical",
+        "balanced_accuracy": 0.7445923052567575,
+        "raw_agreement": 0.844643085992567,
+        "recall_by_level": {
+          "off": 0.8702428267761838,
+          "on": 0.7344673408651744,
+          "reduced": 0.629066748128914
+        },
+        "greedy_share": {
+          "off": 0.742268598615917,
+          "on": 0.1542455626041266,
+          "reduced": 0.10348583877995643
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 5846,
+        "necessity_dimmed": 51108
+      },
+      "deployment": {
+        "mask": "deployment",
+        "balanced_accuracy": 0.6129143754542103,
+        "raw_agreement": 0.8933943675509419,
+        "recall_by_level": {
+          "off": 0.9185168958037935,
+          "on": 0.9091524563110904,
+          "reduced": 0.01107377424774706
+        },
+        "greedy_share": {
+          "off": 0.7806532743816481,
+          "on": 0.21820133282070997,
+          "reduced": 0.0011453927976419326
+        },
+        "logged_share": {
+          "off": 0.831809480328079,
+          "on": 0.1419706362937332,
+          "reduced": 0.026219883378187876
+        },
+        "necessity_shed_while_entitled": 0,
+        "necessity_dimmed": 0
+      }
+    }
+  }
+}

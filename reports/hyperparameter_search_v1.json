@@ -1,0 +1,237 @@
+{
+  "status": "HYPERPARAMETER_SEARCH_COMPLETE",
+  "origin": "Search design by Gudala Padma Pranitha, PR #1. Selection objective changed: see the module docstring.",
+  "trials": 10,
+  "steps_per_trial": 4000,
+  "search_space": {
+    "alpha": [
+      0.5,
+      1.0,
+      1.5,
+      2.0
+    ],
+    "warm_start": [
+      1000,
+      2000,
+      3000
+    ],
+    "hidden": [
+      64,
+      128,
+      256
+    ],
+    "lr": [
+      0.0001,
+      0.0003,
+      0.001
+    ],
+    "scale": [
+      5.0,
+      10.0,
+      20.0
+    ]
+  },
+  "fixed_not_searched": {
+    "use_balanced_sampling": false,
+    "level_weight_norm": "min",
+    "reason": "Both measured and refuted; not free parameters."
+  },
+  "sanity_floor": 0.45,
+  "selection_note": "Balanced accuracy is a sanity filter. Control quality is decided in the simulator by final_model_selection_v1.py.",
+  "results": [
+    {
+      "label": "defaults",
+      "alpha": 1.0,
+      "warm_start": 2000,
+      "hidden": 128,
+      "lr": 0.0003,
+      "scale": 10.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7490374903359376,
+      "td_error_non_terminal": 0.304399124846976,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 50133,
+      "dim_recall": 0.6260882847105544,
+      "checkpoint": "models/sharp_bdq_v3_hp_defaults/checkpoint.npz",
+      "minutes": 4.48
+    },
+    {
+      "label": "trial1",
+      "alpha": 0.5,
+      "warm_start": 3000,
+      "hidden": 128,
+      "lr": 0.0001,
+      "scale": 20.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.733370869985507,
+      "td_error_non_terminal": 0.172587881816098,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 50133,
+      "dim_recall": 0.6079120207728731,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial1/checkpoint.npz",
+      "minutes": 5.38
+    },
+    {
+      "label": "trial2",
+      "alpha": 0.5,
+      "warm_start": 1000,
+      "hidden": 64,
+      "lr": 0.0003,
+      "scale": 5.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7258254770691958,
+      "td_error_non_terminal": 0.1891559722821768,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 25109,
+      "dim_recall": 0.6134107224683061,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial2/checkpoint.npz",
+      "minutes": 3.24
+    },
+    {
+      "label": "trial3",
+      "alpha": 1.0,
+      "warm_start": 3000,
+      "hidden": 128,
+      "lr": 0.001,
+      "scale": 10.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7509765746805571,
+      "td_error_non_terminal": 0.37684067862917353,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 50133,
+      "dim_recall": 0.6554146937528639,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial3/checkpoint.npz",
+      "minutes": 0.75
+    },
+    {
+      "label": "trial4",
+      "alpha": 1.0,
+      "warm_start": 3000,
+      "hidden": 256,
+      "lr": 0.001,
+      "scale": 20.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7534909140498653,
+      "td_error_non_terminal": 0.34979283592974547,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 100181,
+      "dim_recall": 0.6206659538720024,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial4/checkpoint.npz",
+      "minutes": 1.28
+    },
+    {
+      "label": "trial5",
+      "alpha": 0.5,
+      "warm_start": 2000,
+      "hidden": 64,
+      "lr": 0.0001,
+      "scale": 5.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7217885911990982,
+      "td_error_non_terminal": 0.1711887149601707,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 25109,
+      "dim_recall": 0.650297846341836,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial5/checkpoint.npz",
+      "minutes": 0.59
+    },
+    {
+      "label": "trial6",
+      "alpha": 2.0,
+      "warm_start": 3000,
+      "hidden": 64,
+      "lr": 0.0003,
+      "scale": 20.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.748074992461201,
+      "td_error_non_terminal": 0.39504408570512234,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 25109,
+      "dim_recall": 0.6387658469528028,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial6/checkpoint.npz",
+      "minutes": 0.63
+    },
+    {
+      "label": "trial7",
+      "alpha": 0.5,
+      "warm_start": 2000,
+      "hidden": 128,
+      "lr": 0.001,
+      "scale": 20.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7415085505410293,
+      "td_error_non_terminal": 0.25582059343494395,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 50133,
+      "dim_recall": 0.6263937681380785,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial7/checkpoint.npz",
+      "minutes": 0.79
+    },
+    {
+      "label": "trial8",
+      "alpha": 0.5,
+      "warm_start": 3000,
+      "hidden": 256,
+      "lr": 0.0001,
+      "scale": 10.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7387019692770244,
+      "td_error_non_terminal": 0.18477614844899506,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 100181,
+      "dim_recall": 0.6039407362150603,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial8/checkpoint.npz",
+      "minutes": 1.26
+    },
+    {
+      "label": "trial9",
+      "alpha": 2.0,
+      "warm_start": 1000,
+      "hidden": 64,
+      "lr": 0.0001,
+      "scale": 5.0,
+      "status": "PASS",
+      "gate_failures": [],
+      "balanced_accuracy": 0.7445923052567575,
+      "td_error_non_terminal": 0.3596617795872423,
+      "illegal_greedy_picks": 0,
+      "parameter_count": 25109,
+      "dim_recall": 0.629066748128914,
+      "checkpoint": "models/sharp_bdq_v3_hp_trial9/checkpoint.npz",
+      "minutes": 0.64
+    }
+  ],
+  "carry_forward": [
+    {
+      "label": "trial4",
+      "checkpoint": "models/sharp_bdq_v3_hp_trial4/checkpoint.npz"
+    },
+    {
+      "label": "trial3",
+      "checkpoint": "models/sharp_bdq_v3_hp_trial3/checkpoint.npz"
+    },
+    {
+      "label": "defaults",
+      "checkpoint": "models/sharp_bdq_v3_hp_defaults/checkpoint.npz"
+    },
+    {
+      "label": "trial6",
+      "checkpoint": "models/sharp_bdq_v3_hp_trial6/checkpoint.npz"
+    },
+    {
+      "label": "trial9",
+      "checkpoint": "models/sharp_bdq_v3_hp_trial9/checkpoint.npz"
+    }
+  ],
+  "test_split_used": false,
+  "approved_for_deployment": false
+}
