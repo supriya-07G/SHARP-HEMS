@@ -293,12 +293,17 @@ if __name__ == '__main__':
     p.add_argument('--only', nargs='+', default=None,
                    help='restrict to these candidate labels')
     a = p.parse_args()
-    for item in a.extra:
-        label, _, relative = item.partition('=')
-        CANDIDATES[label] = relative
+    # --only restricts the BUILT-IN candidates. Anything named by --extra was
+    # asked for explicitly, so it is always kept - filtering it out again would
+    # silently evaluate nothing but the incumbent.
     if a.only:
         keep = set(a.only)
         for label in [l for l in CANDIDATES if l not in keep]:
             del CANDIDATES[label]
+    for item in a.extra:
+        label, _, relative = item.partition('=')
+        if not relative:
+            raise SystemExit(f'--extra expects label=path, got {item!r}')
+        CANDIDATES[label] = relative
     out = a.out or a.root / 'reports/final_model_selection_v1.json'
     sys.exit(run(a.root.resolve(), a.episodes, a.seeds, out))

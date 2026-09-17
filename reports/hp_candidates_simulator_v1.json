@@ -1,0 +1,124 @@
+{
+  "status": "FINAL_MODEL_SELECTED",
+  "criterion": {
+    "gates": [
+      "necessity_shed_while_entitled == 0",
+      "unserved_kwh <= baseline",
+      "infeasible_steps == 0",
+      "discomfort <= baseline * 1.02"
+    ],
+    "score": "lowest peak_kw, tie-broken on peak_to_average",
+    "explicitly_not_a_criterion": {
+      "balanced_accuracy": "The logged action equals the occupant request 96.35 % of the time, so agreement with logged behaviour mostly measures how closely a controller reproduces doing nothing. It is a sanity check, not a quality metric.",
+      "cost_inr": "APCPDCL domestic tariff is telescopic on monthly units with no time-of-day rate, so shifting load in time cannot save the household money."
+    }
+  },
+  "episodes_per_seed": 60,
+  "seeds": [
+    7,
+    99
+  ],
+  "split": "validation",
+  "test_split_used": false,
+  "absolute_means": {
+    "no demand response": {
+      "peak_kw": 0.48227338511845214,
+      "peak_to_average": 2.7324398728992305,
+      "cost_inr": 25.187078456315582,
+      "import_kwh": 4.589765618416119,
+      "overrides": 0.15,
+      "discomfort": 9.943330463716299,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 14242
+    },
+    "rule-based": {
+      "peak_kw": 0.46761586340045,
+      "peak_to_average": 2.8857204065438404,
+      "cost_inr": 23.926962748566755,
+      "import_kwh": 4.327580027184915,
+      "overrides": 0.16666666666666666,
+      "discomfort": 9.943330463716299,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 14242
+    },
+    "shipped (handover)": {
+      "peak_kw": 0.4352286826263426,
+      "peak_to_average": 2.5898808216982374,
+      "cost_inr": 24.949508881786365,
+      "import_kwh": 4.543289450061339,
+      "overrides": 0.26666666666666666,
+      "discomfort": 9.943330463716299,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 13350
+    },
+    "hp_defaults": {
+      "peak_kw": 0.4350956551274888,
+      "peak_to_average": 2.6067523547171514,
+      "cost_inr": 24.971509536401335,
+      "import_kwh": 4.5505654576143595,
+      "overrides": 0.25,
+      "discomfort": 9.943330463716299,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 12878
+    },
+    "hp_trial4": {
+      "peak_kw": 0.4486352843804245,
+      "peak_to_average": 2.68143483044767,
+      "cost_inr": 24.92548723716243,
+      "import_kwh": 4.536213337791276,
+      "overrides": 0.6333333333333333,
+      "discomfort": 9.943330463716299,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 13082
+    },
+    "hp_trial6": {
+      "peak_kw": 0.43657999601384334,
+      "peak_to_average": 2.620462423617089,
+      "cost_inr": 24.985745900947848,
+      "import_kwh": 4.55357982252097,
+      "overrides": 0.19166666666666665,
+      "discomfort": 9.943330463716299,
+      "unserved_kwh": 0.0,
+      "infeasible_steps": 0.0,
+      "necessity_shed_while_entitled": 0,
+      "necessity_service_opportunities": 13039
+    }
+  },
+  "gate_failures": {
+    "shipped (handover)": [],
+    "hp_defaults": [],
+    "hp_trial4": [],
+    "hp_trial6": []
+  },
+  "tie_tolerance_kw": 0.005,
+  "indistinguishable": [
+    "hp_defaults",
+    "shipped (handover)",
+    "hp_trial6"
+  ],
+  "incumbent": "shipped (handover)",
+  "selected": "shipped (handover)",
+  "selected_checkpoint": "handover/sharp_rl_v1/sharp_policy.npz",
+  "ranking": [
+    "hp_defaults",
+    "shipped (handover)",
+    "hp_trial6",
+    "hp_trial4"
+  ],
+  "limitations": [
+    "Simulator evaluation on held-out validation household-days, not field evidence.",
+    "The occupant, including every override, is synthetic.",
+    "Appliance power values are proxies for most devices."
+  ],
+  "approved_for_deployment": false
+}
