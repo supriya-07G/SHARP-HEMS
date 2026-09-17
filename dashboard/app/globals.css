@@ -1,55 +1,211 @@
-
 @import "tailwindcss";
 
+/* ==========================================================================
+   SHARP UI style guide v1.0
+
+   Every colour below comes from the palette sheet. The accent colours ship in
+   three weights each - tint / soft / ink - because the brief is "pastel only",
+   and a pastel fill with pastel text is unreadable. The pattern throughout:
+
+       pastel FILL  +  deep INK text  =  soft look, legible contrast
+
+   Never put ink-weight colour on large areas, and never put soft-weight text
+   on a soft-weight fill.
+   ========================================================================== */
+
 :root {
-  --background: #f5f9ff;
-  --foreground: #172b4d;
+  /* Brand ---------------------------------------------------------------- */
+  --primary: #6faff6;         /* main brand: active states, links, focus     */
+  --primary-soft: #a9d0fa;    /* pastel fill for primary surfaces            */
+  --primary-tint: #eaf4ff;    /* soft sky blue: section fills, hovers        */
+  --primary-ink: #1c5fa8;     /* text/icon on a primary tint                 */
+
+  --navy: #0f2d4a;            /* headings and primary text                   */
+  --sky: #eaf4ff;
+  --page: #f6faff;            /* main page background                        */
+  --surface: #ffffff;         /* cards, modals, content surfaces             */
+
+  /* Status --------------------------------------------------------------- */
+  --mint: #34d399;
+  --mint-soft: #b6ecd5;       /* pastel fill                                 */
+  --mint-tint: #eafaf3;
+  --mint-ink: #0b6b4a;        /* readable on mint-tint                       */
+
+  --yellow: #fbbf24;
+  --yellow-soft: #fde4a6;
+  --yellow-tint: #fef8e9;
+  --yellow-ink: #8a5a00;
+
+  --red: #ef4444;
+  --red-soft: #f8b9b9;
+  --red-tint: #fdeeee;
+  --red-ink: #a32222;
+
+  /* Neutrals ------------------------------------------------------------- */
+  --slate: #6b7c93;           /* secondary text, labels, helper text         */
+  --slate-soft: #9aa8bd;
+  --border: #e5eaf2;
+
+  /* Form ----------------------------------------------------------------- */
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-lg: 22px;
+
+  /* Shadows stay very soft. A heavy shadow reads as a different product. */
+  --shadow-sm: 0 1px 2px rgba(15, 45, 74, 0.04);
+  --shadow: 0 2px 10px rgba(15, 45, 74, 0.05);
+  --shadow-lg: 0 8px 28px rgba(15, 45, 74, 0.07);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: var(--page);
+  color: var(--navy);
   min-height: 100vh;
   font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   overflow-x: hidden;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-/* Soft blue technical grid */
-.bg-grid-pattern {
-  background-size: 32px 32px;
-  background-image:
-    linear-gradient(to right, rgba(37, 99, 235, 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(37, 99, 235, 0.045) 1px, transparent 1px);
+/* --------------------------------------------------------------------------
+   Primitives. Kept as classes rather than repeated utility strings so the
+   whole surface can be retuned from one place.
+   -------------------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Clean light scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.card-lift {
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+.card-lift:hover {
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
 }
 
-::-webkit-scrollbar-track {
-  background: #eef5ff;
+/* The pastel icon tile from the reference: a tinted square holding one glyph. */
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  flex-shrink: 0;
 }
 
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+.metric {
+  font-size: 30px;
+  line-height: 1.05;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--navy);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Status chips: pastel fill, ink text. */
+.chip-mint   { background: var(--mint-tint);    color: var(--mint-ink); }
+.chip-yellow { background: var(--yellow-tint);  color: var(--yellow-ink); }
+.chip-red    { background: var(--red-tint);     color: var(--red-ink); }
+.chip-blue   { background: var(--primary-tint); color: var(--primary-ink); }
+.chip-slate  { background: #f1f4f9;             color: var(--slate); }
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* Buttons ---------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 15px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease,
+    color 150ms ease, box-shadow 150ms ease;
+}
+
+.btn-primary {
+  background: var(--primary-soft);
+  color: #0d3f74;
+  border-color: #92c2f8;
+}
+.btn-primary:hover:not(:disabled) { background: #97c6f9; }
+
+.btn-quiet {
+  background: var(--surface);
+  color: var(--navy);
+  border-color: var(--border);
+}
+.btn-quiet:hover:not(:disabled) {
+  background: var(--primary-tint);
+  border-color: #cfe2fa;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Focus is visible and calm - never removed. */
+:where(button, a, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Scrollbar -------------------------------------------------------------- */
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #b9cceb;
-  border-radius: 3px;
+  background: #d7e3f2;
+  border-radius: 999px;
+  border: 2px solid var(--page);
 }
+::-webkit-scrollbar-thumb:hover { background: #bed2ea; }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #8eabd5;
+/* Motion ----------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
-
-/* Smooth transitions for dashboard interactions */
-button,
-a {
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    color 150ms ease,
-    box-shadow 150ms ease,
-    transform 150ms ease;
-}
-

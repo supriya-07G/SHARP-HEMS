@@ -65,16 +65,16 @@ export function Panel4Appliances({
         <div
           className={`flex items-start justify-between gap-3 rounded-xl border p-4 shadow-sm ${
             lastAck.accepted
-              ? 'border-blue-200 bg-blue-50 text-blue-800'
-              : 'border-blue-300 bg-blue-100 text-blue-900'
+              ? 'border-[#e5eaf2] bg-[#eaf4ff] text-[#0f2d4a]'
+              : 'border-[#d7e3f2] bg-[#eaf4ff] text-[#0f2d4a]'
           }`}
         >
           <div className="flex items-start gap-3">
 
             {lastAck.accepted ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#6b7c93]" />
             ) : (
-              <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
+              <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-[#0f2d4a]" />
             )}
 
             <div className="space-y-1">
@@ -98,7 +98,7 @@ export function Panel4Appliances({
                   <>
                     Actuation verified via GPIO readback (
                     {lastAck.verification}). Round-trip latency:{' '}
-                    <strong className="font-mono text-blue-700">
+                    <strong className="font-mono text-[#0f2d4a]">
                       {lastAck.latency_ms} ms
                     </strong>
                     .
@@ -106,7 +106,7 @@ export function Panel4Appliances({
                 ) : (
                   <>
                     Refused by Safety Shield:{' '}
-                    <strong className="font-mono text-blue-800">
+                    <strong className="font-mono text-[#0f2d4a]">
                       {lastAck.rejected_reason}
                     </strong>
                     . Critical loads cannot be disconnected.
@@ -119,7 +119,7 @@ export function Panel4Appliances({
           <button
             type="button"
             onClick={onClearAck}
-            className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500 hover:border-blue-200 hover:text-blue-700 cursor-pointer"
+            className="rounded border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500 hover:border-[#e5eaf2] hover:text-[#0f2d4a] cursor-pointer"
           >
             Dismiss
           </button>
@@ -129,18 +129,18 @@ export function Panel4Appliances({
       {/* =====================================================
           PROTECTED APPLIANCES
       ===================================================== */}
-      <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-[#e5eaf2] bg-white p-5 shadow-sm">
 
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
 
           <div className="flex items-center gap-2.5">
 
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] text-[#0f2d4a]">
               <ShieldCheck className="h-4 w-4" />
             </div>
 
             <div>
-              <h3 className="font-mono text-sm font-bold tracking-wide text-blue-800">
+              <h3 className="font-mono text-sm font-bold tracking-wide text-[#0f2d4a]">
                 PROTECTED APPLIANCES (CRITICAL NECESSITY)
               </h3>
 
@@ -152,8 +152,8 @@ export function Panel4Appliances({
             </div>
           </div>
 
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-xs font-semibold text-blue-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse" />
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs font-semibold text-[#0f2d4a]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#a9d0fa] animate-pulse" />
             {protectedAppliances.length} OF{' '}
             {protectedAppliances.length} ACTIVE
           </span>
@@ -175,13 +175,13 @@ export function Panel4Appliances({
       {/* =====================================================
           FLEXIBLE APPLIANCES
       ===================================================== */}
-      <section className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border border-[#e5eaf2] bg-white p-5 shadow-sm">
 
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
 
           <div className="flex items-center gap-2.5">
 
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] text-[#6b7c93]">
               <Sliders className="h-4 w-4" />
             </div>
 
@@ -198,7 +198,7 @@ export function Panel4Appliances({
             </div>
           </div>
 
-          <span className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1 font-mono text-xs text-blue-700">
+          <span className="rounded-md border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs text-[#0f2d4a]">
             {
               flexibleAppliances.filter(
                 (a) => a.level === 1

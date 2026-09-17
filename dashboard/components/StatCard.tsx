@@ -1,117 +1,111 @@
 'use client';
 
 import React from 'react';
-import { LucideIcon } from 'lucide-react';
 
-interface StatCardProps {
-  title: string;
+/**
+ * The headline stat card: pastel icon tile, one big number, one chip.
+ *
+ * Two rules from the style guide are enforced here rather than left to the
+ * caller. The fill is always a tint and the text on it is always ink weight -
+ * pastel text on a pastel fill is what makes a soft palette unreadable. And
+ * `note` is where a simulated value gets said out loud.
+ */
+
+export type Tone = 'blue' | 'mint' | 'yellow' | 'red' | 'slate';
+
+const TINT: Record<Tone, string> = {
+  blue: 'var(--primary-tint)',
+  mint: 'var(--mint-tint)',
+  yellow: 'var(--yellow-tint)',
+  red: 'var(--red-tint)',
+  slate: '#f1f4f9',
+};
+
+const INK: Record<Tone, string> = {
+  blue: 'var(--primary-ink)',
+  mint: 'var(--mint-ink)',
+  yellow: 'var(--yellow-ink)',
+  red: 'var(--red-ink)',
+  slate: 'var(--slate)',
+};
+
+/** Legacy variant names, mapped onto the style-guide tones. Kept so the
+ *  components written against the earlier API keep rendering; new code should
+ *  pass `tone`. */
+const LEGACY_TONE: Record<string, Tone> = {
+  cyan: 'blue', blue: 'blue', emerald: 'mint', green: 'mint', mint: 'mint',
+  amber: 'yellow', yellow: 'yellow', red: 'red', rose: 'red',
+  slate: 'slate', gray: 'slate', neutral: 'slate',
+};
+
+interface Props {
+  /** Preferred. */
+  label?: string;
   value: string | number;
   unit?: string;
+  note?: string;
+  tone?: Tone;
+  chip?: { text: string; tone?: Tone };
+  /** A node, or a component such as a Lucide icon. */
+  icon?: React.ReactNode | React.ComponentType<{ size?: number }>;
+
+  /** Legacy spellings. */
+  title?: string;
   subtext?: string;
-  icon: LucideIcon;
-  variant?: 'cyan' | 'emerald' | 'amber' | 'rose' | 'default';
-  badge?: {
-    text: string;
-    type: 'success' | 'warning' | 'alert' | 'neutral';
-  };
+  variant?: string;
+  badge?: { text: string; type?: string };
 }
 
 export function StatCard({
-  title,
-  value,
-  unit,
-  subtext,
-  icon: Icon,
-  variant = 'default',
-  badge,
-}: StatCardProps) {
-  const variantStyles = {
-    cyan:
-      'border-blue-200 bg-blue-50/50 hover:border-blue-300',
-    emerald:
-      'border-blue-200 bg-blue-50/30 hover:border-blue-300',
-    amber:
-      'border-blue-300 bg-blue-50/70 hover:border-blue-400',
-    rose:
-      'border-blue-200 bg-blue-50/40 hover:border-blue-300',
-    default:
-      'border-blue-100 bg-white hover:border-blue-200',
-  }[variant];
+  label, value, unit, note, tone, chip, icon, title, subtext, variant, badge,
+}: Props) {
+  const heading = label ?? title ?? '';
+  const footnote = note ?? subtext;
+  const resolvedTone: Tone = tone ?? LEGACY_TONE[variant ?? ''] ?? 'blue';
+  const resolvedChip = chip ?? (badge
+    ? { text: badge.text, tone: LEGACY_TONE[badge.type ?? ''] ?? resolvedTone }
+    : undefined);
 
-  const iconColor = {
-    cyan:
-      'text-blue-600 bg-blue-100 border-blue-200',
-    emerald:
-      'text-blue-600 bg-blue-50 border-blue-200',
-    amber:
-      'text-blue-700 bg-blue-100 border-blue-300',
-    rose:
-      'text-blue-700 bg-blue-50 border-blue-200',
-    default:
-      'text-blue-600 bg-blue-50 border-blue-100',
-  }[variant];
-
-  const valueColor = 'text-[#17365D]';
-
-  const badgeStyles = badge
-    ? {
-        success:
-          'bg-blue-50 text-blue-700 border-blue-200',
-        warning:
-          'bg-blue-100 text-blue-800 border-blue-300',
-        alert:
-          'bg-blue-200 text-blue-900 border-blue-300',
-        neutral:
-          'bg-blue-50 text-blue-600 border-blue-100',
-      }[badge.type]
-    : '';
-
+  // An icon may arrive as an element (<Zap />) or as a component (Zap). Lucide
+  // components are forwardRef OBJECTS, not functions, so a typeof check misses
+  // them and React then tries to render the object itself. Test for an element
+  // instead, and construct anything that is not one.
+  const glyph = icon == null || React.isValidElement(icon)
+    ? icon
+    : React.createElement(icon as React.ComponentType<{ size?: number }>, { size: 20 });
   return (
-    <div
-      className={`group relative overflow-hidden rounded-xl border p-4 shadow-sm transition-all duration-200 hover:shadow-md ${variantStyles}`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1 min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wider text-blue-600">
-            {title}
+    <div className="card card-lift p-4">
+      <div className="flex items-start gap-3">
+        <span className="tile"
+              style={{ background: TINT[resolvedTone], color: INK[resolvedTone] }}>
+          {glyph}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] font-medium" style={{ color: 'var(--slate)' }}>
+            {heading}
           </p>
-
-          <div className="flex items-baseline gap-1.5 min-w-0">
-            <span
-              className={`font-mono text-2xl font-bold tracking-tight ${valueColor}`}
-            >
-              {value}
-            </span>
-
+          <p className="metric mt-1 truncate">
+            {value}
             {unit && (
-              <span className="font-mono text-xs font-semibold text-blue-500">
+              <span className="ml-1 text-[14px] font-medium"
+                    style={{ color: 'var(--slate)' }}>
                 {unit}
+              </span>
+            )}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {resolvedChip && (
+              <span className={`chip chip-${resolvedChip.tone ?? resolvedTone}`}>
+                {resolvedChip.text}
+              </span>
+            )}
+            {footnote && (
+              <span className="text-[11px]" style={{ color: 'var(--slate-soft)' }}>
+                {footnote}
               </span>
             )}
           </div>
         </div>
-
-        <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${iconColor}`}
-        >
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-blue-100 pt-2.5 text-xs">
-        {subtext && (
-          <span className="truncate text-blue-500">
-            {subtext}
-          </span>
-        )}
-
-        {badge && (
-          <span
-            className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium tracking-wide ${badgeStyles}`}
-          >
-            {badge.text}
-          </span>
-        )}
       </div>
     </div>
   );

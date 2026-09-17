@@ -61,10 +61,10 @@ export function GridController({
 
   const severityBadgeClass =
     severity >= 0.65
-      ? 'border-blue-400 bg-blue-200 text-blue-900'
+      ? 'border-blue-400 bg-blue-200 text-[#0f2d4a]'
       : severity >= 0.4
-      ? 'border-blue-300 bg-blue-100 text-blue-800'
-      : 'border-blue-200 bg-blue-50 text-blue-700';
+      ? 'border-[#d7e3f2] bg-[#eaf4ff] text-[#0f2d4a]'
+      : 'border-[#e5eaf2] bg-[#eaf4ff] text-[#0f2d4a]';
 
   return (
     <div className="space-y-6">
@@ -72,15 +72,15 @@ export function GridController({
       {/* =========================================================
           HEADER
       ========================================================= */}
-      <div className="relative overflow-hidden rounded-2xl border border-blue-100 bg-blue-50 p-6 shadow-sm">
+      <div className="relative overflow-hidden rounded-2xl border border-[#e5eaf2] bg-[#eaf4ff] p-6 shadow-sm">
 
         <div className="flex flex-wrap items-center justify-between gap-4">
 
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-blue-600" />
+              <span className="h-2 w-2 rounded-full bg-[#a9d0fa]" />
 
-              <span className="font-mono text-xs font-bold tracking-widest text-blue-700 uppercase">
+              <span className="font-mono text-xs font-bold tracking-widest text-[#0f2d4a] uppercase">
                 DISCOM Operator Console
               </span>
             </div>
@@ -89,19 +89,19 @@ export function GridController({
               Distribution Feeder Stress &amp; Peak Management
             </h2>
 
-            <p className="text-xs text-blue-600/80">
+            <p className="text-xs text-[#6b7c93]/80">
               Authority: APCPDCL Regional Grid Operations •
               Feeder: Guntur Urban Sub-12 (431 Enrolled Smart Homes)
             </p>
           </div>
 
           <div className="flex items-center gap-3 font-mono text-xs">
-            <div className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-right shadow-sm">
-              <span className="block text-[10px] text-blue-400 uppercase">
+            <div className="rounded-lg border border-[#e5eaf2] bg-white px-3 py-2 text-right shadow-sm">
+              <span className="block text-[10px] text-[#9aa8bd] uppercase">
                 Current Feeder Status
               </span>
 
-              <span className="font-bold text-blue-700">
+              <span className="font-bold text-[#0f2d4a]">
                 {peakEvent.is_active
                   ? 'PEAK MITIGATION ACTIVE'
                   : 'NOMINAL BASELINE'}
@@ -115,16 +115,16 @@ export function GridController({
           ACTION FEEDBACK
       ========================================================= */}
       {lastActionMessage && (
-        <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs text-blue-800">
+        <div className="flex items-center justify-between rounded-xl border border-[#e5eaf2] bg-[#eaf4ff] px-4 py-2.5 text-xs text-[#0f2d4a]">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-blue-600" />
+            <CheckCircle2 className="h-4 w-4 text-[#6b7c93]" />
             <span>{lastActionMessage}</span>
           </div>
 
           <button
             type="button"
             onClick={() => setLastActionMessage(null)}
-            className="text-blue-500 hover:text-blue-800 cursor-pointer"
+            className="text-[#6b7c93] hover:text-[#0f2d4a] cursor-pointer"
           >
             Dismiss
           </button>
@@ -141,13 +141,13 @@ export function GridController({
         ======================================================= */}
         <div className="space-y-6 lg:col-span-7">
 
-          <div className="rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-[#e5eaf2] bg-white p-6 shadow-sm">
 
-            <div className="flex items-center justify-between border-b border-blue-100 pb-4">
+            <div className="flex items-center justify-between border-b border-[#e5eaf2] pb-4">
 
               <div className="flex items-center gap-2.5">
 
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] text-[#6b7c93]">
                   <Sliders className="h-4 w-4" />
                 </div>
 
@@ -156,7 +156,7 @@ export function GridController({
                     DECLARE DEMAND-RESPONSE PEAK EVENT
                   </h3>
 
-                  <p className="text-xs text-blue-500">
+                  <p className="text-xs text-[#6b7c93]">
                     Dispatches authenticated peak signal to
                     participating household SHARP controllers
                   </p>
@@ -169,7 +169,7 @@ export function GridController({
 
               {/* Quick Presets */}
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-blue-600">
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#6b7c93]">
                   Standard Demo Scenarios
                 </label>
 
@@ -180,15 +180,15 @@ export function GridController({
                     onClick={() => setPreset(0.67, 60)}
                     className={`rounded-lg border p-2.5 text-left transition-all cursor-pointer ${
                       severity === 0.67
-                        ? 'border-blue-400 bg-blue-100 text-blue-800'
-                        : 'border-blue-100 bg-white text-blue-500 hover:border-blue-200 hover:bg-blue-50'
+                        ? 'border-blue-400 bg-[#eaf4ff] text-[#0f2d4a]'
+                        : 'border-[#e5eaf2] bg-white text-[#6b7c93] hover:border-[#e5eaf2] hover:bg-[#eaf4ff]'
                     }`}
                   >
                     <div className="font-mono text-xs font-bold text-[#17365D]">
                       Midday Feeder Peak
                     </div>
 
-                    <div className="mt-0.5 text-[11px] text-blue-500">
+                    <div className="mt-0.5 text-[11px] text-[#6b7c93]">
                       14:05 IST • Sev: 0.67
                     </div>
                   </button>
@@ -198,15 +198,15 @@ export function GridController({
                     onClick={() => setPreset(0.48, 45)}
                     className={`rounded-lg border p-2.5 text-left transition-all cursor-pointer ${
                       severity === 0.48
-                        ? 'border-blue-300 bg-blue-50 text-blue-700'
-                        : 'border-blue-100 bg-white text-blue-500 hover:border-blue-200 hover:bg-blue-50'
+                        ? 'border-[#d7e3f2] bg-[#eaf4ff] text-[#0f2d4a]'
+                        : 'border-[#e5eaf2] bg-white text-[#6b7c93] hover:border-[#e5eaf2] hover:bg-[#eaf4ff]'
                     }`}
                   >
                     <div className="font-mono text-xs font-bold text-[#17365D]">
                       Solar Ramping Drop
                     </div>
 
-                    <div className="mt-0.5 text-[11px] text-blue-500">
+                    <div className="mt-0.5 text-[11px] text-[#6b7c93]">
                       16:15 IST • Sev: 0.48
                     </div>
                   </button>
@@ -216,15 +216,15 @@ export function GridController({
                     onClick={() => setPreset(0.15, 30)}
                     className={`rounded-lg border p-2.5 text-left transition-all cursor-pointer ${
                       severity === 0.15
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-blue-100 bg-white text-blue-500 hover:border-blue-200 hover:bg-blue-50'
+                        ? 'border-[#e5eaf2] bg-[#eaf4ff] text-[#0f2d4a]'
+                        : 'border-[#e5eaf2] bg-white text-[#6b7c93] hover:border-[#e5eaf2] hover:bg-[#eaf4ff]'
                     }`}
                   >
                     <div className="font-mono text-xs font-bold text-[#17365D]">
                       Normal Baseline
                     </div>
 
-                    <div className="mt-0.5 text-[11px] text-blue-500">
+                    <div className="mt-0.5 text-[11px] text-[#6b7c93]">
                       11:00 IST • Sev: 0.15
                     </div>
                   </button>
@@ -233,10 +233,10 @@ export function GridController({
               </div>
 
               {/* Severity */}
-              <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+              <div className="space-y-3 rounded-xl border border-[#e5eaf2] bg-[#eaf4ff]/50 p-4">
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-blue-800">
+                  <span className="text-xs font-medium text-[#0f2d4a]">
                     Grid Stress Severity
                   </span>
 
@@ -259,7 +259,7 @@ export function GridController({
                   className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-blue-200 accent-blue-600"
                 />
 
-                <div className="flex justify-between font-mono text-[10px] text-blue-400">
+                <div className="flex justify-between font-mono text-[10px] text-[#9aa8bd]">
                   <span>0.00 Relaxed</span>
                   <span>0.40 Advisory</span>
                   <span>0.67 Midday Peak</span>
@@ -269,7 +269,7 @@ export function GridController({
 
               {/* Duration */}
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-blue-600">
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#6b7c93]">
                   Event Duration
                 </label>
 
@@ -281,8 +281,8 @@ export function GridController({
                       onClick={() => setDuration(mins)}
                       className={`rounded-lg border py-2 text-center font-mono text-xs font-semibold transition-all cursor-pointer ${
                         duration === mins
-                          ? 'border-blue-300 bg-blue-100 text-blue-800'
-                          : 'border-blue-100 bg-white text-blue-500 hover:border-blue-200 hover:bg-blue-50'
+                          ? 'border-[#d7e3f2] bg-[#eaf4ff] text-[#0f2d4a]'
+                          : 'border-[#e5eaf2] bg-white text-[#6b7c93] hover:border-[#e5eaf2] hover:bg-[#eaf4ff]'
                       }`}
                     >
                       {mins} min
@@ -297,7 +297,7 @@ export function GridController({
                 <button
                   type="button"
                   onClick={handleDeclare}
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-mono text-xs font-bold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 cursor-pointer"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#a9d0fa] px-5 py-3 font-mono text-xs font-bold text-[#0d3f74] shadow-sm transition-all hover:bg-[#8fc1f7] active:scale-95 cursor-pointer"
                 >
                   <Send className="h-4 w-4" />
                   DECLARE PEAK EVENT (BROADCAST)
@@ -307,9 +307,9 @@ export function GridController({
                   <button
                     type="button"
                     onClick={handleCancel}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 font-mono text-xs font-semibold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-100 cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#e5eaf2] bg-[#eaf4ff] px-4 py-3 font-mono text-xs font-semibold text-[#0f2d4a] transition-all hover:border-[#d7e3f2] hover:bg-[#eaf4ff] cursor-pointer"
                   >
-                    <XCircle className="h-4 w-4 text-blue-600" />
+                    <XCircle className="h-4 w-4 text-[#6b7c93]" />
                     CANCEL EVENT
                   </button>
                 )}
@@ -328,19 +328,19 @@ export function GridController({
           <div
             className={`rounded-2xl border p-5 shadow-sm transition-all ${
               peakEvent.is_active
-                ? 'border-blue-300 bg-blue-50'
-                : 'border-blue-100 bg-white'
+                ? 'border-[#d7e3f2] bg-[#eaf4ff]'
+                : 'border-[#e5eaf2] bg-white'
             }`}
           >
 
-            <div className="flex items-center justify-between border-b border-blue-100 pb-3">
+            <div className="flex items-center justify-between border-b border-[#e5eaf2] pb-3">
 
               <div className="flex items-center gap-2">
                 <Radio
                   className={`h-4 w-4 ${
                     peakEvent.is_active
-                      ? 'text-blue-600 animate-pulse'
-                      : 'text-blue-400'
+                      ? 'text-[#6b7c93] animate-pulse'
+                      : 'text-[#9aa8bd]'
                   }`}
                 />
 
@@ -354,8 +354,8 @@ export function GridController({
               <span
                 className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${
                   peakEvent.is_active
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-blue-50 text-blue-500'
+                    ? 'bg-[#a9d0fa] text-[#0d3f74]'
+                    : 'bg-[#eaf4ff] text-[#6b7c93]'
                 }`}
               >
                 {peakEvent.is_active ? 'ACTIVE' : 'IDLE'}
@@ -365,38 +365,38 @@ export function GridController({
 
             <div className="mt-4 space-y-3 font-mono text-xs">
 
-              <div className="flex items-center justify-between text-blue-500">
+              <div className="flex items-center justify-between text-[#6b7c93]">
                 <span>Event Identifier:</span>
                 <span className="font-semibold text-[#17365D]">
                   {peakEvent.event_id}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-blue-500">
+              <div className="flex items-center justify-between text-[#6b7c93]">
                 <span>Current Severity:</span>
-                <span className="font-bold text-blue-700">
+                <span className="font-bold text-[#0f2d4a]">
                   {peakEvent.severity.toFixed(2)}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-blue-500">
+              <div className="flex items-center justify-between text-[#6b7c93]">
                 <span>Declared Time:</span>
-                <span className="text-blue-700">
+                <span className="text-[#0f2d4a]">
                   {peakEvent.declared_at}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-blue-500">
+              <div className="flex items-center justify-between text-[#6b7c93]">
                 <span>Auto-Expiry:</span>
-                <span className="text-blue-700">
+                <span className="text-[#0f2d4a]">
                   {peakEvent.expires_at}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between text-blue-500">
+              <div className="flex items-center justify-between text-[#6b7c93]">
                 <span>Feeder Scope:</span>
                 <span
-                  className="max-w-[180px] truncate text-blue-700"
+                  className="max-w-[180px] truncate text-[#0f2d4a]"
                   title={peakEvent.region}
                 >
                   {peakEvent.region}
@@ -406,11 +406,11 @@ export function GridController({
             </div>
 
             {/* Response Telemetry */}
-            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-blue-100 pt-4">
+            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#e5eaf2] pt-4">
 
-              <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-2.5">
-                <div className="flex items-center gap-1.5 text-blue-500 text-[10px]">
-                  <Users className="h-3 w-3 text-blue-600" />
+              <div className="rounded-lg border border-[#e5eaf2] bg-white p-2.5">
+                <div className="flex items-center gap-1.5 text-[#6b7c93] text-[10px]">
+                  <Users className="h-3 w-3 text-[#6b7c93]" />
                   <span>Homes Shedding</span>
                 </div>
 
@@ -422,13 +422,13 @@ export function GridController({
                 </p>
               </div>
 
-              <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-2.5">
-                <div className="flex items-center gap-1.5 text-blue-500 text-[10px]">
-                  <Zap className="h-3 w-3 text-blue-600" />
+              <div className="rounded-lg border border-[#e5eaf2] bg-white p-2.5">
+                <div className="flex items-center gap-1.5 text-[#6b7c93] text-[10px]">
+                  <Zap className="h-3 w-3 text-[#6b7c93]" />
                   <span>Feeder Relief</span>
                 </div>
 
-                <p className="mt-1 font-mono text-base font-bold text-blue-700">
+                <p className="mt-1 font-mono text-base font-bold text-[#0f2d4a]">
                   {peakEvent.is_active
                     ? `${peakEvent.mw_relieved ?? 0.28} MW`
                     : '0.00 MW'}
@@ -439,19 +439,19 @@ export function GridController({
           </div>
 
           {/* Protection Notice */}
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-xs">
+          <div className="rounded-2xl border border-[#e5eaf2] bg-[#eaf4ff] p-4 text-xs">
 
             <div className="flex items-start gap-2.5">
 
-              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#6b7c93]" />
 
               <div className="space-y-1">
 
-                <p className="font-semibold text-blue-800">
+                <p className="font-semibold text-[#0f2d4a]">
                   Inviolable Protection Boundary
                 </p>
 
-                <p className="text-[11px] leading-relaxed text-blue-700/80">
+                <p className="text-[11px] leading-relaxed text-[#0f2d4a]/80">
                   Per the{' '}
                   <em>Electricity (Rights of Consumers) Rules</em>,
                   grid peak broadcasts affect discretionary cooling

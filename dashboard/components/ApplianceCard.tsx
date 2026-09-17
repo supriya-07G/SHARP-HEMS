@@ -34,12 +34,12 @@ export function ApplianceCard({
     <div
       className={`relative overflow-hidden rounded-xl border p-4 transition-all duration-200 bg-white shadow-sm ${
         isNecessity
-          ? 'border-blue-300 bg-blue-50/60'
+          ? 'border-[#d7e3f2] bg-white'
           : isRunning
-          ? 'border-blue-200 bg-white'
+          ? 'border-[#e5eaf2] bg-white'
           : isDeferred
-          ? 'border-blue-200 bg-blue-50/40'
-          : 'border-blue-100 bg-blue-50/20 opacity-95'
+          ? 'border-[#e5eaf2] bg-white'
+          : 'border-[#e5eaf2] bg-[#f6faff] opacity-95'
       }`}
     >
       {/* Top row: Name, Type & Class Badge */}
@@ -52,16 +52,16 @@ export function ApplianceCard({
             </h4>
 
             {isNecessity && (
-              <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-800 border border-blue-200">
+              <span className="inline-flex items-center gap-1 rounded bg-[#eaf4ff] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#0f2d4a] border border-[#e5eaf2]">
                 <Shield className="h-2.5 w-2.5" />
                 PROTECTED
               </span>
             )}
           </div>
 
-          <p className="text-[11px] text-blue-500 capitalize mt-0.5">
+          <p className="text-[11px] text-[#6b7c93] capitalize mt-0.5">
             {appliance.service_class} • ID:{' '}
-            <code className="font-mono text-blue-700">
+            <code className="font-mono text-[#0f2d4a]">
               {appliance.appliance_id}
             </code>
           </p>
@@ -70,22 +70,22 @@ export function ApplianceCard({
         {/* State Pill */}
         <div>
           {isNecessity ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-100 px-2.5 py-1 font-mono text-xs font-bold text-blue-800">
-              <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#d7e3f2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs font-bold text-[#0f2d4a]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#a9d0fa] animate-pulse" />
               ON
             </span>
           ) : isRunning ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-xs font-bold text-blue-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs font-bold text-[#0f2d4a]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#eaf4ff]0" />
               RUNNING
             </span>
           ) : isDeferred ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2.5 py-1 font-mono text-xs font-bold text-blue-800">
-              <Clock className="h-3 w-3 text-blue-600" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs font-bold text-[#0f2d4a]">
+              <Clock className="h-3 w-3 text-[#6b7c93]" />
               DEFERRED
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-xs font-bold text-blue-600">
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs font-bold text-[#6b7c93]">
               <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
               SHED
             </span>
@@ -94,9 +94,9 @@ export function ApplianceCard({
       </div>
 
       {/* Middle row: Power Metrics & Verification */}
-      <div className="mt-3.5 grid grid-cols-2 gap-2 rounded-lg border border-blue-100 bg-blue-50/50 p-2.5 text-xs">
+      <div className="mt-3.5 grid grid-cols-2 gap-2 rounded-lg border border-[#e5eaf2] bg-[#eaf4ff]/50 p-2.5 text-xs">
         <div>
-          <span className="block text-[10px] font-medium uppercase tracking-wider text-blue-500">
+          <span className="block text-[10px] font-medium uppercase tracking-wider text-[#6b7c93]">
             SIMULATED POWER
           </span>
 
@@ -107,12 +107,12 @@ export function ApplianceCard({
                 : '0.0'}
             </span>
 
-            <span className="font-mono text-[10px] text-blue-500">
+            <span className="font-mono text-[10px] text-[#6b7c93]">
               W
             </span>
           </div>
 
-          <span className="block text-[9px] text-blue-400">
+          <span className="block text-[9px] text-[#9aa8bd]">
             {appliance.measured_w === null
               ? 'No meter fitted'
               : `${appliance.measured_w} W (meter)`}
@@ -120,26 +120,26 @@ export function ApplianceCard({
         </div>
 
         <div>
-          <span className="block text-[10px] font-medium uppercase tracking-wider text-blue-500">
+          <span className="block text-[10px] font-medium uppercase tracking-wider text-[#6b7c93]">
             ACTUATION VERIFIED
           </span>
 
           <div className="mt-0.5 flex items-center gap-1.5">
             {appliance.actuation_verified ? (
               <>
-                <CheckCircle2 className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                <span className="font-mono text-xs font-medium text-blue-700">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[#6b7c93] shrink-0" />
+                <span className="font-mono text-xs font-medium text-[#0f2d4a]">
                   GPIO Readback MATCH
                 </span>
               </>
             ) : (
-              <span className="font-mono text-xs text-blue-600">
+              <span className="font-mono text-xs text-[#6b7c93]">
                 PENDING VERIFY
               </span>
             )}
           </div>
 
-          <span className="block text-[9px] text-blue-400">
+          <span className="block text-[9px] text-[#9aa8bd]">
             Pin state:{' '}
             {appliance.gpio_state === 1
               ? 'HIGH (1)'
@@ -150,19 +150,19 @@ export function ApplianceCard({
 
       {/* Reason line for shed or deferred */}
       {!isNecessity && !isRunning && (
-        <div className="mt-2.5 flex items-center justify-between rounded border border-blue-100 bg-white px-2.5 py-1.5 text-xs">
-          <div className="flex items-center gap-1.5 text-blue-600">
-            <span className="text-[11px] font-semibold text-blue-500">
+        <div className="mt-2.5 flex items-center justify-between rounded border border-[#e5eaf2] bg-white px-2.5 py-1.5 text-xs">
+          <div className="flex items-center gap-1.5 text-[#6b7c93]">
+            <span className="text-[11px] font-semibold text-[#6b7c93]">
               Reason:
             </span>
 
-            <span className="font-mono font-bold text-blue-700 text-[11px]">
+            <span className="font-mono font-bold text-[#0f2d4a] text-[11px]">
               {appliance.shed_reason || 'GRID_PEAK'}
             </span>
           </div>
 
           {appliance.deferred_until && (
-            <span className="font-mono text-[10px] text-blue-600">
+            <span className="font-mono text-[10px] text-[#6b7c93]">
               Resumes: {appliance.deferred_until}
             </span>
           )}
@@ -173,15 +173,15 @@ export function ApplianceCard({
           CRITICAL INVARIANT:
           Protected appliances must NOT have OFF/SHED controls rendered!
       */}
-      <div className="mt-3.5 pt-2 border-t border-blue-100 flex items-center justify-between">
+      <div className="mt-3.5 pt-2 border-t border-[#e5eaf2] flex items-center justify-between">
         {isNecessity ? (
-          <div className="flex items-center gap-1.5 text-[11px] text-blue-700 font-mono">
-            <Shield className="h-3 w-3 text-blue-600" />
+          <div className="flex items-center gap-1.5 text-[11px] text-[#0f2d4a] font-mono">
+            <Shield className="h-3 w-3 text-[#6b7c93]" />
             <span>Shield Guarantee: Always Protected</span>
           </div>
         ) : (
           <>
-            <span className="text-[11px] text-blue-500">
+            <span className="text-[11px] text-[#6b7c93]">
               Resident Control:
             </span>
 
@@ -193,7 +193,7 @@ export function ApplianceCard({
                   onOverride(appliance.appliance_id, 1)
                 }
                 disabled={isLoading}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 font-mono text-xs font-semibold text-blue-700 hover:bg-blue-100 hover:border-blue-300 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] px-3 py-1 font-mono text-xs font-semibold text-[#0f2d4a] hover:bg-[#eaf4ff] hover:border-[#d7e3f2] active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
               >
                 <RotateCcw className="h-3 w-3" />
                 RESTORE LOAD
@@ -206,9 +206,9 @@ export function ApplianceCard({
                   onOverride(appliance.appliance_id, 0)
                 }
                 disabled={isLoading}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1 font-mono text-xs font-semibold text-blue-700 hover:bg-blue-50 hover:border-blue-300 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5eaf2] bg-white px-3 py-1 font-mono text-xs font-semibold text-[#0f2d4a] hover:bg-[#eaf4ff] hover:border-[#d7e3f2] active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
               >
-                <Power className="h-3 w-3 text-blue-500" />
+                <Power className="h-3 w-3 text-[#6b7c93]" />
                 SHED
               </button>
             )}

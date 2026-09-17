@@ -23,9 +23,9 @@ export function PeakEventCard({
 }: PeakEventCardProps) {
   if (!peakEvent.is_active) {
     return (
-      <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-white px-4 py-3 shadow-sm">
+      <div className="flex items-center justify-between rounded-xl border border-[#e5eaf2] bg-white px-4 py-3 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] text-[#6b7c93]">
             <ShieldCheck className="h-4 w-4" />
           </div>
 
@@ -41,7 +41,7 @@ export function PeakEventCard({
           </div>
         </div>
 
-        <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-blue-700">
+        <span className="rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#0f2d4a]">
           GRID RELAXED
         </span>
       </div>
@@ -49,25 +49,25 @@ export function PeakEventCard({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl border-2 border-blue-300 bg-blue-50/60 p-5 shadow-sm">
+    <div className="relative overflow-hidden rounded-xl border-2 border-[#d7e3f2] bg-white p-5 shadow-sm">
 
       <div className="relative z-10 space-y-4">
 
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-200 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5eaf2] pb-3">
 
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-600">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#e5eaf2] bg-white text-[#6b7c93]">
               <AlertTriangle className="h-5 w-5" />
             </div>
 
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-mono text-sm font-bold tracking-wide text-blue-800">
+                <h3 className="font-mono text-sm font-bold tracking-wide text-[#0f2d4a]">
                   PEAK EVENT ACTIVE
                 </h3>
 
-                <span className="rounded bg-blue-600 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white uppercase">
+                <span className="rounded bg-[#a9d0fa] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#0d3f74] uppercase">
                   DISCOM Broadcast
                 </span>
               </div>
@@ -84,7 +84,7 @@ export function PeakEventCard({
               Grid Peak Severity
             </span>
 
-            <span className="font-mono text-xl font-extrabold text-blue-700">
+            <span className="font-mono text-xl font-extrabold text-[#0f2d4a]">
               {peakEvent.severity.toFixed(2)}
             </span>
           </div>
@@ -93,9 +93,9 @@ export function PeakEventCard({
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 
-          <div className="rounded-lg border border-blue-100 bg-white p-2.5 shadow-sm">
+          <div className="rounded-lg border border-[#e5eaf2] bg-white p-2.5 shadow-sm">
             <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-              <Clock className="h-3 w-3 text-blue-600" />
+              <Clock className="h-3 w-3 text-[#6b7c93]" />
               <span>Event Window</span>
             </div>
 
@@ -104,9 +104,9 @@ export function PeakEventCard({
             </p>
           </div>
 
-          <div className="rounded-lg border border-blue-100 bg-white p-2.5 shadow-sm">
+          <div className="rounded-lg border border-[#e5eaf2] bg-white p-2.5 shadow-sm">
             <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-              <MapPin className="h-3 w-3 text-blue-600" />
+              <MapPin className="h-3 w-3 text-[#6b7c93]" />
               <span>Feeder Region</span>
             </div>
 
@@ -118,35 +118,35 @@ export function PeakEventCard({
             </p>
           </div>
 
-          <div className="rounded-lg border border-blue-100 bg-white p-2.5 shadow-sm">
+          <div className="rounded-lg border border-[#e5eaf2] bg-white p-2.5 shadow-sm">
             <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-              <Users className="h-3 w-3 text-blue-600" />
+              <Users className="h-3 w-3 text-[#6b7c93]" />
               <span>Homes Enrolled</span>
             </div>
 
-            <p className="mt-1 font-mono text-xs font-bold text-blue-700">
+            <p className="mt-1 font-mono text-xs font-bold text-[#0f2d4a]">
               {peakEvent.homes_responding ?? 431} homes
             </p>
           </div>
 
-          <div className="rounded-lg border border-blue-100 bg-white p-2.5 shadow-sm">
+          <div className="rounded-lg border border-[#e5eaf2] bg-white p-2.5 shadow-sm">
             <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-              <Zap className="h-3 w-3 text-blue-600" />
+              <Zap className="h-3 w-3 text-[#6b7c93]" />
               <span>Relief Achieved</span>
             </div>
 
-            <p className="mt-1 font-mono text-xs font-bold text-blue-700">
+            <p className="mt-1 font-mono text-xs font-bold text-[#0f2d4a]">
               {peakEvent.mw_relieved ?? 0.28} MW
             </p>
           </div>
         </div>
 
         {/* Safety Banner */}
-        <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+        <div className="flex items-start gap-2.5 rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] p-3 text-xs text-[#0f2d4a]">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#6b7c93]" />
 
           <div className="space-y-0.5">
-            <p className="font-semibold text-blue-800">
+            <p className="font-semibold text-[#0f2d4a]">
               SHARP Safety Guarantee: Necessity Loads Protected
             </p>
 

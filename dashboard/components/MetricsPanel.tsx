@@ -16,21 +16,21 @@ export function MetricsPanel() {
       {/* =====================================================
           PROJECT HEADLINE
       ===================================================== */}
-      <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-sky-50 p-5 shadow-sm">
+      <div className="rounded-2xl border border-[#e5eaf2] bg-gradient-to-r from-blue-50 via-white to-sky-50 p-5 shadow-sm">
 
         <div className="flex items-start gap-3.5">
 
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white text-blue-600 shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#e5eaf2] bg-white text-[#6b7c93] shadow-sm">
             <Award className="h-5 w-5" />
           </div>
 
           <div className="space-y-1">
 
-            <h4 className="text-sm font-bold uppercase tracking-wide text-blue-800">
+            <h4 className="text-sm font-bold uppercase tracking-wide text-[#0f2d4a]">
               The Project Headline: Equity, Not Mere Bill Arbitrage
             </h4>
 
-            <blockquote className="my-1 border-l-2 border-blue-300 pl-3 text-xs italic leading-relaxed text-slate-600">
+            <blockquote className="my-1 border-l-2 border-[#d7e3f2] pl-3 text-xs italic leading-relaxed text-slate-600">
               &ldquo;We do not choose which village goes dark.
               We take the television from everyone so that
               nobody goes dark.&rdquo;
@@ -57,13 +57,13 @@ export function MetricsPanel() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 
         {/* Peak Avoidance */}
-        <div className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-[#e5eaf2] bg-white p-5 shadow-sm">
 
           <div className="flex items-center justify-between">
 
             <div className="flex items-center gap-2">
 
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] text-[#6b7c93]">
                 <TrendingDown className="h-4 w-4" />
               </div>
 
@@ -72,13 +72,13 @@ export function MetricsPanel() {
               </span>
             </div>
 
-            <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-0.5 font-mono text-xs font-semibold text-blue-700">
+            <span className="rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-0.5 font-mono text-xs font-semibold text-[#0f2d4a]">
               Primary KPI
             </span>
           </div>
 
           <div className="mt-4 flex items-baseline gap-2">
-            <span className="font-mono text-4xl font-extrabold text-blue-600">
+            <span className="font-mono text-4xl font-extrabold text-[#6b7c93]">
               18.4%
             </span>
 
@@ -100,11 +100,11 @@ export function MetricsPanel() {
             .
           </p>
 
-          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-2.5 text-xs">
+          <div className="mt-4 rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] p-2.5 text-xs">
             <div className="flex items-center justify-between text-slate-600">
               <span>Blackout Relief Equivalence:</span>
 
-              <strong className="font-mono text-blue-700">
+              <strong className="font-mono text-[#0f2d4a]">
                 4.7 homes / 100
               </strong>
             </div>
@@ -112,13 +112,13 @@ export function MetricsPanel() {
         </div>
 
         {/* PAR */}
-        <div className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-[#e5eaf2] bg-white p-5 shadow-sm">
 
           <div className="flex items-center justify-between">
 
             <div className="flex items-center gap-2">
 
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#e5eaf2] bg-[#eaf4ff] text-[#6b7c93]">
                 <Gauge className="h-4 w-4" />
               </div>
 
@@ -127,17 +127,17 @@ export function MetricsPanel() {
               </span>
             </div>
 
-            <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-0.5 font-mono text-xs font-semibold text-blue-700">
+            <span className="rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-0.5 font-mono text-xs font-semibold text-[#0f2d4a]">
               Grid Stability
             </span>
           </div>
 
           <div className="mt-4 flex items-baseline gap-2">
-            <span className="font-mono text-4xl font-extrabold text-blue-600">
+            <span className="font-mono text-4xl font-extrabold text-[#6b7c93]">
               2.558
             </span>
 
-            <span className="font-mono text-xs text-blue-700">
+            <span className="font-mono text-xs text-[#0f2d4a]">
               -8.7% vs rule-based (2.803)
             </span>
           </div>
@@ -149,11 +149,11 @@ export function MetricsPanel() {
             smooths recovery.
           </p>
 
-          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/50 p-2.5 text-xs">
+          <div className="mt-4 rounded-lg border border-[#e5eaf2] bg-[#eaf4ff]/50 p-2.5 text-xs">
             <div className="flex items-center justify-between text-slate-600">
               <span>Uncontrolled Baseline PAR:</span>
 
-              <span className="font-mono text-slate-700">
+              <span className="font-mono text-[#6b7c93]">
                 2.593
               </span>
             </div>
@@ -164,12 +164,12 @@ export function MetricsPanel() {
       {/* =====================================================
           BENCHMARK TABLE
       ===================================================== */}
-      <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-[#e5eaf2] bg-white p-5 shadow-sm">
 
         <div className="mb-3 flex items-center justify-between">
 
           <div className="flex items-center gap-2">
-            <Scale className="h-4 w-4 text-blue-600" />
+            <Scale className="h-4 w-4 text-[#6b7c93]" />
 
             <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-[#172b4d]">
               Policy Benchmark (40 Held-Out Household-Days)
@@ -185,7 +185,7 @@ export function MetricsPanel() {
           <table className="w-full text-left text-xs font-mono">
 
             <thead>
-              <tr className="border-b border-blue-100 text-slate-500">
+              <tr className="border-b border-[#e5eaf2] text-slate-500">
                 <th className="px-3 py-2 font-semibold">
                   Evaluation Metric
                 </th>
@@ -198,7 +198,7 @@ export function MetricsPanel() {
                   Rule-Based
                 </th>
 
-                <th className="rounded-t bg-blue-50 px-3 py-2 font-semibold text-blue-700">
+                <th className="rounded-t bg-[#eaf4ff] px-3 py-2 font-semibold text-[#0f2d4a]">
                   SHARP (Ours)
                 </th>
               </tr>
@@ -215,13 +215,13 @@ export function MetricsPanel() {
                   0.408
                 </td>
 
-                <td className="px-3 py-2.5 text-blue-500">
+                <td className="px-3 py-2.5 text-[#6b7c93]">
                   0.409
                 </td>
 
-                <td className="bg-blue-50/70 px-3 py-2.5 font-bold text-blue-700">
+                <td className="bg-[#eaf4ff]/70 px-3 py-2.5 font-bold text-[#0f2d4a]">
                   0.379{' '}
-                  <span className="text-[10px] text-blue-600">
+                  <span className="text-[10px] text-[#6b7c93]">
                     (-7.1%)
                   </span>
                 </td>
@@ -236,13 +236,13 @@ export function MetricsPanel() {
                   2.593
                 </td>
 
-                <td className="px-3 py-2.5 text-blue-500">
+                <td className="px-3 py-2.5 text-[#6b7c93]">
                   2.803 (Worse)
                 </td>
 
-                <td className="bg-blue-50/70 px-3 py-2.5 font-bold text-blue-700">
+                <td className="bg-[#eaf4ff]/70 px-3 py-2.5 font-bold text-[#0f2d4a]">
                   2.558{' '}
-                  <span className="text-[10px] text-blue-600">
+                  <span className="text-[10px] text-[#6b7c93]">
                     (Best)
                   </span>
                 </td>
@@ -257,11 +257,11 @@ export function MetricsPanel() {
                   ₹19.18
                 </td>
 
-                <td className="px-3 py-2.5 font-bold text-blue-600">
+                <td className="px-3 py-2.5 font-bold text-[#6b7c93]">
                   ₹18.06
                 </td>
 
-                <td className="bg-blue-50/70 px-3 py-2.5 font-semibold text-[#172b4d]">
+                <td className="bg-[#eaf4ff]/70 px-3 py-2.5 font-semibold text-[#172b4d]">
                   ₹19.00
                 </td>
               </tr>
@@ -271,9 +271,9 @@ export function MetricsPanel() {
         </div>
 
         {/* Tariff Honesty */}
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-[11px] text-slate-600">
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-[#e5eaf2] bg-white p-3 text-[11px] text-slate-600">
 
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#6b7c93]" />
 
           <p>
             <strong className="text-[#172b4d]">

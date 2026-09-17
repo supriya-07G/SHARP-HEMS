@@ -24,7 +24,7 @@ export function PowerChart({
   sanctionedLoadKw = 1.0,
 }: PowerChartProps) {
   return (
-    <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-[#e5eaf2] bg-white p-5 shadow-sm">
 
       {/* Header */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -42,7 +42,7 @@ export function PowerChart({
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-blue-600" />
+            <span className="h-2 w-2 rounded-full bg-[#a9d0fa]" />
             <span className="text-slate-600">
               SHARP Managed kW
             </span>
@@ -156,27 +156,27 @@ export function PowerChart({
               content={({ active, payload, label }) => {
                 if (active && payload && payload.length) {
                   return (
-                    <div className="rounded-xl border border-blue-100 bg-white p-3 shadow-lg text-xs font-mono">
+                    <div className="rounded-xl border border-[#e5eaf2] bg-white p-3 shadow-lg text-xs font-mono">
                       <p className="mb-1.5 font-bold text-[#172b4d]">
                         {label} IST
                       </p>
 
                       <div className="space-y-1">
-                        <p className="text-blue-600">
+                        <p className="text-[#6b7c93]">
                           SHARP Load:{' '}
                           <strong>
                             {payload[0]?.value} kW
                           </strong>
                         </p>
 
-                        <p className="text-blue-400">
+                        <p className="text-[#9aa8bd]">
                           Baseline Load:{' '}
                           <strong>
                             {payload[1]?.value} kW
                           </strong>
                         </p>
 
-                        <p className="text-blue-800">
+                        <p className="text-[#0f2d4a]">
                           Grid Severity:{' '}
                           <strong>
                             {payload[2]?.value}
