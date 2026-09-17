@@ -64,7 +64,7 @@ export function PeakEventCard({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-mono text-sm font-bold tracking-wide text-[#0f2d4a]">
-                  PEAK EVENT ACTIVE
+                  Peak event active
                 </h3>
 
                 <span className="rounded bg-[#a9d0fa] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#0d3f74] uppercase">
@@ -80,7 +80,7 @@ export function PeakEventCard({
           </div>
 
           <div className="text-right">
-            <span className="block text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            <span className="block text-[10px] font-medium tracking-wide text-slate-500">
               Grid Peak Severity
             </span>
 
@@ -147,7 +147,7 @@ export function PeakEventCard({
 
           <div className="space-y-0.5">
             <p className="font-semibold text-[#0f2d4a]">
-              SHARP Safety Guarantee: Necessity Loads Protected
+              Safety guarantee — essential loads protected
             </p>
 
             <p className="text-[11px] leading-relaxed text-slate-600">

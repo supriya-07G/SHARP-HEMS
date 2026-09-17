@@ -30,7 +30,7 @@ export function PowerChart({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-mono text-sm font-bold tracking-wide text-[#172b4d]">
-            24-HOUR HOUSEHOLD LOAD &amp; GRID PROFILE (96 STEPS)
+            Household load over 24 hours
           </h3>
 
           <p className="text-xs text-slate-500">

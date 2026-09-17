@@ -67,7 +67,7 @@ export function MetricsPanel() {
                 <TrendingDown className="h-4 w-4" />
               </div>
 
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#172b4d]">
+              <span className="text-xs font-semibold text-[#172b4d]">
                 PEAK AVOIDANCE
               </span>
             </div>
@@ -122,7 +122,7 @@ export function MetricsPanel() {
                 <Gauge className="h-4 w-4" />
               </div>
 
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#172b4d]">
+              <span className="text-xs font-semibold text-[#172b4d]">
                 PEAK-TO-AVERAGE RATIO (PAR)
               </span>
             </div>
@@ -171,7 +171,7 @@ export function MetricsPanel() {
           <div className="flex items-center gap-2">
             <Scale className="h-4 w-4 text-[#6b7c93]" />
 
-            <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-[#172b4d]">
+            <h4 className="text-xs font-semibold text-[#172b4d]">
               Policy Benchmark (40 Held-Out Household-Days)
             </h4>
           </div>

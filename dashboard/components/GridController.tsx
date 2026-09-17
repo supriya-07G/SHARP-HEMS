@@ -169,7 +169,7 @@ export function GridController({
 
               {/* Quick Presets */}
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#6b7c93]">
+                <label className="mb-2 block text-xs font-semibold tracking-wide text-[#6b7c93]">
                   Standard Demo Scenarios
                 </label>
 
@@ -269,7 +269,7 @@ export function GridController({
 
               {/* Duration */}
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-[#6b7c93]">
+                <label className="mb-2 block text-xs font-semibold tracking-wide text-[#6b7c93]">
                   Event Duration
                 </label>
 

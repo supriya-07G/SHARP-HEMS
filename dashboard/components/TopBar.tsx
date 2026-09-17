@@ -1,11 +1,15 @@
 'use client';
 
 /**
- * The top strip: greeting, date, live/stale indicator, role chip.
+ * The top of every view: status chips, then a hero band carrying the greeting
+ * and the house artwork.
  *
- * The connection indicator is not decoration. A dashboard that renders stale
+ * The chips sit on their own row. Sharing one with the greeting put them on
+ * top of the artwork and left both looking cramped.
+ *
+ * The live/stale indicator is not decoration. A dashboard that renders stale
  * data as live is worse than one showing nothing, because nobody knows to
- * distrust it - so the age is shown whenever it is more than a minute old.
+ * distrust it - so the age is shown as soon as the feed falls behind.
  */
 
 import { HomeIllustration } from '@/components/HomeIllustration';
@@ -29,9 +33,9 @@ function greeting(iso: string) {
 }
 
 const SUBTITLE: Record<Role, string> = {
-  resident: 'Your essentials stay on, whatever the grid is doing.',
+  resident: 'Your fan, light and fridge stay on — whatever the grid is doing.',
   grid: 'Declare an event. Luxury pauses; nobody goes dark.',
-  technical: 'Model, registry and the settings behind the demo.',
+  technical: 'The model, the live state, and the settings behind the demo.',
 };
 
 export function TopBar({
@@ -42,59 +46,66 @@ export function TopBar({
   const time = timestampIst.slice(11, 16);
 
   return (
-    <header className="relative mb-6 overflow-hidden xl:min-h-[124px]">
-      {/* Quiet decoration. Behind the text, never over it, and gone on small
-          screens where the space belongs to content. */}
-      <HomeIllustration className="pointer-events-none absolute -top-2 right-0 hidden h-[122px] w-[286px] opacity-75 xl:block" />
+    <header className="mb-6">
+      {/* Status row */}
+      <div className="mb-3.5 flex flex-wrap items-center justify-end gap-2.5">
+        <span className="chip chip-slate">{date} · {time} IST</span>
 
-      <div className="relative flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-[30px] sm:text-[34px] font-semibold tracking-tight leading-tight"
-              style={{ color: 'var(--navy)' }}>
+        <span className={`chip ${stale ? 'chip-yellow' : 'chip-mint'}`}>
+          <span className="dot"
+                style={{ background: stale ? 'var(--yellow)' : 'var(--mint)' }} />
+          {stale
+            ? dataAgeSeconds > 60
+              ? `${Math.round(dataAgeSeconds / 60)} min old`
+              : 'stale'
+            : 'live'}
+        </span>
+
+        <label className="sr-only" htmlFor="role">View as</label>
+        <select
+          id="role"
+          value={role}
+          onChange={(e) => onRoleChange(e.target.value as Role)}
+          className="rounded-[11px] px-3 py-1.5 text-[12.5px] font-semibold"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            color: 'var(--navy)',
+          }}
+        >
+          {ROLES.map((r) => (
+            <option key={r.id} value={r.id}>{r.label}</option>
+          ))}
+        </select>
+
+        <span className="hidden sm:inline-flex chip chip-blue" title="House id">
+          {houseId}
+        </span>
+      </div>
+
+      {/* Hero band. The artwork is clipped by the band, so it can never
+          collide with the copy however the viewport changes. */}
+      <div
+        className="relative overflow-hidden rounded-[22px] px-6 py-6 sm:px-8 sm:py-8 xl:min-h-[176px]"
+        style={{
+          background:
+            'linear-gradient(112deg,#eaf3ff 0%,#f4f9ff 46%,#edf7f1 100%)',
+          border: '1px solid #e3edf8',
+        }}
+      >
+        <HomeIllustration className="pointer-events-none absolute bottom-0 right-0 hidden h-[172px] w-[392px] xl:block" />
+
+        <div className="relative max-w-[540px]">
+          <p className="eyebrow">Guntur · APCPDCL</p>
+          <h1
+            className="mt-2 text-[30px] sm:text-[36px] font-semibold tracking-tight leading-[1.08]"
+            style={{ color: 'var(--navy)' }}
+          >
             {greeting(timestampIst)}
           </h1>
-          <p className="mt-1 text-[13.5px]" style={{ color: 'var(--slate)' }}>
+          <p className="mt-2.5 text-[14px] leading-relaxed" style={{ color: 'var(--slate)' }}>
             {SUBTITLE[role]}
           </p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <span className="chip chip-slate">
-            {date} · {time} IST
-          </span>
-
-          {/* Live or stale, never ambiguous. */}
-          <span className={`chip ${stale ? 'chip-yellow' : 'chip-mint'}`}>
-            <span className="dot"
-                  style={{ background: stale ? 'var(--yellow)' : 'var(--mint)' }} />
-            {stale
-              ? dataAgeSeconds > 60
-                ? `${Math.round(dataAgeSeconds / 60)} min old`
-                : 'stale'
-              : 'live'}
-          </span>
-
-          {/* Role switch. No auth in this build - see lib/roles.ts. */}
-          <label className="sr-only" htmlFor="role">View as</label>
-          <select
-            id="role"
-            value={role}
-            onChange={(e) => onRoleChange(e.target.value as Role)}
-            className="rounded-[11px] px-3 py-1.5 text-[12.5px] font-semibold"
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              color: 'var(--navy)',
-            }}
-          >
-            {ROLES.map((r) => (
-              <option key={r.id} value={r.id}>{r.label}</option>
-            ))}
-          </select>
-
-          <span className="hidden sm:inline-flex chip chip-blue" title="House id">
-            {houseId}
-          </span>
         </div>
       </div>
     </header>

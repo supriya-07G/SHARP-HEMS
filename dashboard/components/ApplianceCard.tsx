@@ -96,7 +96,7 @@ export function ApplianceCard({
       {/* Middle row: Power Metrics & Verification */}
       <div className="mt-3.5 grid grid-cols-2 gap-2 rounded-lg border border-[#e5eaf2] bg-[#eaf4ff]/50 p-2.5 text-xs">
         <div>
-          <span className="block text-[10px] font-medium uppercase tracking-wider text-[#6b7c93]">
+          <span className="block text-[10px] font-medium tracking-wide text-[#6b7c93]">
             SIMULATED POWER
           </span>
 
@@ -120,7 +120,7 @@ export function ApplianceCard({
         </div>
 
         <div>
-          <span className="block text-[10px] font-medium uppercase tracking-wider text-[#6b7c93]">
+          <span className="block text-[10px] font-medium tracking-wide text-[#6b7c93]">
             ACTUATION VERIFIED
           </span>
 

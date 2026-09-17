@@ -115,7 +115,7 @@ export function Sidebar({ role, onRoleChange }: Props) {
 
       {/* Closing note. Also the honesty line - it belongs where it is always
           visible, not buried in a footer nobody scrolls to. */}
-      <HomeIllustration className="mb-3 h-[86px] w-full opacity-80" />
+      <HomeIllustration compact className="mb-3 h-[94px] w-full opacity-90" />
 
       <div className="rounded-[16px] p-4"
            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>

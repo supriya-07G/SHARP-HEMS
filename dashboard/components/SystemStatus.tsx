@@ -47,7 +47,7 @@ export function SystemStatus({
             {isConnected ? (
               <>
                 <Wifi className="h-3.5 w-3.5 text-[#6b7c93]" />
-                MQTT CONNECTED
+                Connected
               </>
             ) : (
               <>

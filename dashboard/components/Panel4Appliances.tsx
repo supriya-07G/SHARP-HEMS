@@ -79,7 +79,7 @@ export function Panel4Appliances({
 
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase tracking-wider">
+                <span className="text-xs font-semibold">
                   {lastAck.accepted
                     ? 'COMMAND ACCEPTED'
                     : 'COMMAND REJECTED'}
@@ -89,7 +89,7 @@ export function Panel4Appliances({
                   {lastAck.appliance_id} →{' '}
                   {lastAck.applied_level === 1
                     ? 'ON'
-                    : 'SHED'}
+                    : 'Turn off'}
                 </span>
               </div>
 
