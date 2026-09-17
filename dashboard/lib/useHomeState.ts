@@ -16,6 +16,39 @@ import {
 } from './mockState';
 import { connectFeed } from './mqtt';
 
+/**
+ * Hand the override to the Pi.
+ *
+ * Goes through our own API route, never straight to the broker: the publish
+ * credential must not reach the browser, where anything NEXT_PUBLIC_* is
+ * readable by whoever opens the page. A leaked read-only user exposes demo
+ * telemetry; a leaked publish user exposes the relays.
+ *
+ * Fire-and-forget on purpose. The UI must not stall waiting for a broker, and
+ * delivery is not the same thing as the appliance switching on - the Pi's
+ * shield decides that and may refuse.
+ */
+async function sendOverrideToPi(
+  houseId: string, applianceId: string, level: ActionLevel,
+  clientLatencyMs?: number,
+): Promise<void> {
+  try {
+    await fetch('/api/override', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        house_id: houseId,
+        appliance_id: applianceId,
+        requested_level: level,
+        client_latency_ms: clientLatencyMs ?? null,
+      }),
+    });
+  } catch {
+    // No broker configured, or offline. The local view still updates; the
+    // connection indicator is what tells the resident it did not travel.
+  }
+}
+
 export interface UseHomeStateReturn {
   homeState: HomeState;
   peakEvent: PeakEvent;
@@ -249,6 +282,10 @@ export function useHomeState(): UseHomeStateReturn {
       const targetApp = homeState.appliances.find(
         (a) => a.appliance_id === applianceId
       );
+
+      // Record the intent with the Pi. Refusals below are the LOCAL preview of
+      // what the shield will say; the Pi remains the authority.
+      void sendOverrideToPi(homeState.house_id, applianceId, requestedLevel);
 
       // SAFETY CHECK 1:
       // Necessity load shedding refused.
