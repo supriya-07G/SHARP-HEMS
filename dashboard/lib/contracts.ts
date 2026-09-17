@@ -242,3 +242,65 @@ export function overrideAvailable(
 export function homesNotBlackedOut(peakCutPercent: number): string {
   return `equivalent to ${peakCutPercent.toFixed(1)} homes in 100 not blacked out`;
 }
+
+// ---------------------------------------------------------------------------
+// Credits — paying to keep a luxury load through a peak
+// ---------------------------------------------------------------------------
+
+/**
+ * What it costs to keep one load running through one event, and what the
+ * household has to spend.
+ *
+ * This is Critical Peak Pricing with OPT-OUT, and three of its design rules
+ * are load-bearing:
+ *
+ *   Events are capped (10-15 a year, published in advance). Unlimited events
+ *   would let a DISCOM suppress luxury indefinitely, which breaks the promise
+ *   that supply is for everyone.
+ *
+ *   Participation is COMPENSATED. A household that never opts out must end the
+ *   year paying LESS. Without that it is a penalty, and a regulator rejects it.
+ *
+ *   The default is to shed. Measured participation is 85 % for opt-out against
+ *   28 % for opt-in, so the default carries the programme.
+ *
+ * Every amount here is a PROPOSAL under the Electricity (Rights of Consumers)
+ * Amendment Rules 2023. APCPDCL has no domestic time-of-day rate today, so
+ * these are never presented as charges this utility currently issues.
+ */
+export interface CreditAccount {
+  /** Credits available to spend on keeping luxury loads on. */
+  balance: number;
+  /** Credits one appliance costs for one event. */
+  cost_to_keep: number;
+  /** Events this household opted out of, this billing month. */
+  opted_out_this_month: number;
+  /** Events participated in - these earn the relief credit. */
+  participated_this_month: number;
+  /** Programme cap on events per year. */
+  events_capped_per_year: number;
+}
+
+/** An override that spent credits. THE reward model's training label. */
+export interface OverrideEvent {
+  override_id: string;
+  house_id: string;
+  appliance_id: ApplianceId | string;
+  requested_level: ActionLevel;
+  /**
+   * Milliseconds from the notice appearing to the tap.
+   *
+   * NOT a UI timing. This is the graded preference signal: a fast override
+   * means the load mattered more. Instrument it properly - timestamp,
+   * appliance, the agent's prior action, and the context state - rather than
+   * treating it as a click.
+   */
+  client_latency_ms: number | null;
+  credits_spent: number;
+  /** True where a presence sensor confirms somebody could have objected. */
+  occupancy_confirmed: boolean;
+  issued_at: string;
+  /** What the shield did with it. Null until the Pi answers. */
+  applied_level: ActionLevel | null;
+  rejected_reason: RejectedReason | null;
+}

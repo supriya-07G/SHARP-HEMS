@@ -35,3 +35,10 @@ export const ROLES: Array<{ id: Role; label: string; description: string }> = [
 ];
 
 export const DEFAULT_ROLE: Role = 'resident';
+
+/** Where each role lives. Kept here so the nav and the routes cannot drift. */
+export const ROLE_PATH: Record<Role, string> = {
+  resident: '/resident',
+  grid: '/grid',
+  technical: '/technical',
+};
