@@ -61,9 +61,23 @@ class SharpPolicy:
 
         q = self.q_values(state, normalised=normalised)
         allowed = device_present[:, None] & legal
-        if not allowed.any(axis=1).all():
-            raise ValueError('A present device has no legal level at all')
-        return np.argmax(np.where(allowed, q, -np.inf), axis=1)
+
+        # Check the PRESENT devices only. An absent slot has no legal level by
+        # definition - it is padding. Checking every slot made this raise for
+        # any household with fewer than 28 appliances, which is every household
+        # (median 8, and the rig has 10).
+        stuck = device_present & ~allowed.any(axis=1)
+        if stuck.any():
+            raise ValueError(
+                f'Present device(s) with no legal level at all: '
+                f'{np.flatnonzero(stuck).tolist()}')
+
+        # Padding must never win an argmax. Absent slots are all -inf, and
+        # argmax over all -inf returns 0, so force them to 0 explicitly rather
+        # than relying on that.
+        levels = np.argmax(np.where(allowed, q, -np.inf), axis=1)
+        levels[~device_present] = 0
+        return levels
 
 
 def check_golden_vector(policy, path='golden_vector.json'):
