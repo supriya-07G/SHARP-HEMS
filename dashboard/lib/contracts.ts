@@ -18,7 +18,7 @@ export type OperatingMode =
   | 'islanded_outage';
 
 export type ServiceClass =
-  | 'necessity'
+  | 'critical'
   | 'thermostatic'
   | 'deferrable'
   | 'interruptible';
@@ -35,6 +35,26 @@ export interface ApplianceState {
   gpio_state: 0 | 1;
   actuation_verified: boolean;
   remaining_service_hours: number;
+
+  /**
+   * The occupant is asking for this appliance NOW.
+   *
+   * LOAD-BEARING. Protection is conditional on it: SHARP never sheds a critical
+   * load the occupant wants, but the occupant may always switch their own
+   * appliance off. Without this field the UI cannot tell those apart and ends
+   * up refusing the resident control of their own fan.
+   */
+  occupant_wants: boolean;
+
+  /**
+   * A grid peak currently forbids energising this circuit.
+   *
+   * LOAD-BEARING. Without it the UI leaves "turn on" enabled during a peak, the
+   * Pi refuses, and nothing visibly happens - a silent failure, which is the
+   * worst kind on a demo.
+   */
+  peak_locked_out: boolean;
+
   display_name?: string;
   shed_reason?: string | null;
   deferred_until?: string | null;
@@ -129,4 +149,96 @@ export interface Feed {
   dataAgeSeconds: number;
   state: HomeState | null;
   intent: Intent | null;
+}
+// ---------------------------------------------------------------------------
+// FROZEN VOCABULARY — do not edit without changing the Pi to match
+// ---------------------------------------------------------------------------
+
+/**
+ * The ten appliance ids. Frozen: the Pi, the rig and this app must agree.
+ * A typo here is a silent failure - nothing throws, the appliance just never
+ * updates.
+ */
+export const APPLIANCE_IDS = [
+  'ceiling_fan_01',
+  'table_fan_01',
+  'led_bulb_01',
+  'led_tube_01',
+  'refrigerator_01',
+  'air_conditioner_01',
+  'washing_machine_01',
+  'ev_charger_01',
+  'television_01',
+  'mixer_grinder_01',
+] as const;
+
+export type ApplianceId = (typeof APPLIANCE_IDS)[number];
+
+/** Closed set. The Pi will never send anything else; do not invent strings. */
+export type RejectedReason =
+  | 'necessity_mask'
+  | 'compressor_protection'
+  | 'cycle_active'
+  | 'min_on_steps'
+  | 'min_off_steps'
+  | 'command_expired'
+  | 'level_not_supported'
+  | 'peak_lockout'
+  | 'watchdog_hold';
+
+/** A refusal is evidence, not an error. Render it in words the resident reads. */
+export const REJECTION_TEXT: Record<RejectedReason, string> = {
+  necessity_mask: 'Essential load — cannot be shed',
+  compressor_protection: 'Compressor needs 3 minutes before restarting',
+  cycle_active: 'Mid-cycle — cannot be interrupted',
+  min_on_steps: 'Minimum run time not yet reached',
+  min_off_steps: 'Minimum off time not yet reached',
+  command_expired: 'Command arrived too late',
+  level_not_supported: 'This appliance has no such level',
+  peak_lockout: 'Unavailable during grid peak',
+  watchdog_hold: 'No valid command — holding last safe state',
+};
+
+// ---------------------------------------------------------------------------
+// The rules, as functions. Keep them here, not scattered through components -
+// a rule that lives in one component is a rule the next component forgets.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether to show an off control at all.
+ *
+ * A critical appliance THE OCCUPANT IS USING renders with NO off control - not
+ * greyed, absent. No such action exists anywhere in the system.
+ *
+ * The condition matters. A fridge at 3am that nobody is asking for may be
+ * switched off by the resident: the shield protects essential service from the
+ * CONTROLLER, never from the person who lives there.
+ */
+export function canShowOffControl(a: ApplianceState): boolean {
+  return !(a.is_necessity && a.occupant_wants);
+}
+
+/**
+ * Whether an override can be attempted right now.
+ *
+ * A phone override can fail silently where a wall switch cannot, so disable the
+ * control and say why rather than accepting a tap that will never arrive.
+ */
+export function overrideAvailable(
+  a: ApplianceState,
+  live: boolean,
+): { enabled: boolean; reason?: string } {
+  if (!live) return { enabled: false, reason: 'No connection' };
+  if (a.peak_locked_out) {
+    return { enabled: false, reason: REJECTION_TEXT.peak_lockout };
+  }
+  if (!canShowOffControl(a)) {
+    return { enabled: false, reason: REJECTION_TEXT.necessity_mask };
+  }
+  return { enabled: true };
+}
+
+/** Peak avoided, expressed the way a DISCOM and a citizen both understand. */
+export function homesNotBlackedOut(peakCutPercent: number): string {
+  return `equivalent to ${peakCutPercent.toFixed(1)} homes in 100 not blacked out`;
 }
