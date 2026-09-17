@@ -12,15 +12,17 @@ wins, because it was written against the validated model.
 
 ## 0. The roles
 
-The idea book §43 names four roles. Two of them carry the demo.
+**Three roles.** The idea book §43 names four; hardware operator is folded into
+technical for this build, because the same two people hold both jobs.
 
-| Role | Audience | Shows | For the demo |
-|---|---|---|---|
-| **Resident** | the citizen | appliances, protected vs shed, overrides, consent | **Core** |
-| **Grid controller** | the DISCOM | declare peak, severity, homes responding, MW relieved | **Core** |
-| Team / admin | the team | registries, models, experiments | Later |
-| Hardware operator | Charu, Harini | device health, actuation faults, maintenance | Later |
-| Rig OLED | the room | what the hardware itself believes | **Core** |
+| Role | Audience | Shows |
+|---|---|---|
+| **Home resident** | the citizen | appliances, protected vs shed, overrides, consent, bill |
+| **Grid controller** | the DISCOM | declare peak, severity, homes responding, MW relieved |
+| **Technical** | the team | registries, models, experiments, device health, event lead time |
+
+The rig OLED is a fourth surface but not a dashboard role - it shows what the
+hardware itself believes, with no login.
 
 **The grid controller is core, not future scope.** The idea book calls it "a
 future grid controller"; that is superseded. Without it there is nothing to

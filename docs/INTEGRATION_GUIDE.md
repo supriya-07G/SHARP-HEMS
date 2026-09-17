@@ -30,18 +30,32 @@ Everyone codes against these. They come from
 
 ## 1.1 Appliance registry
 
-The source of truth is `simulator_inputs/device_power_models.parquet`.
-Seven appliances in the prototype:
+The source of truth is `simulator_inputs/device_power_models.parquet`, and the
+rig is specified in `HARDWARE_PROTOTYPE_SPEC.md` §2. **Ten appliances.**
 
-| id | `appliance_type` | Class | Necessity | Dimmable | Watts | Family |
-|---|---|---|---|---|---|---|
-| `fridge_01` | `refrigerator` | Critical | **yes** | no | 47.7 | thermostatic |
-| `fan_01` | `ceiling_fan` | Critical | **yes** | **yes (0.50)** | 60.0 | continuous |
-| `light_01` | `led_bulb` | Critical | **yes** | **yes (0.40)** | 9.0 | continuous |
-| `ac_01` | `air_conditioner` | Thermostatic | no | no | 1114.6 | thermostatic |
-| `washer_01` | `washing_machine` | Deferrable | no | no | 110.1 | cycle |
-| `tv_01` | `television` | Interruptible | no | no | 118.5 | continuous |
-| `pump_01` | `water_pump` | Interruptible | no | no | 750.0 | task |
+| id | `appliance_type` | Class | Necessity | Dimmable | Watts |
+|---|---|---|---|---|---|
+| `ceiling_fan_01` | `ceiling_fan` | Critical | **yes** | **no** | 60.0 |
+| `table_fan_01` | `table_fan` | Critical | **yes** | **no** | 40.0 |
+| `led_bulb_01` | `led_bulb` | Critical | **yes** | **no** | 9.0 |
+| `led_tube_01` | `led_tube` | Critical | **yes** | **no** | 18.0 |
+| `refrigerator_01` | `refrigerator` | Critical + thermostatic | **yes** | no | 43.2 |
+| `air_conditioner_01` | `air_conditioner` | Thermostatic | no | no | 1328.4 |
+| `washing_machine_01` | `washing_machine` | Deferrable | no | no | 113.7 |
+| `ev_charger_01` | `ev_charger` | Deferrable | no | no | — |
+| `television_01` | `television` | Interruptible | no | no | 104.6 |
+| `mixer_grinder_01` | `mixer_grinder` | Interruptible | no | no | 500.0 |
+
+> **This table replaced a seven-appliance list** (`fridge_01`, `fan_01`,
+> `light_01`, `ac_01`, `washer_01`, `tv_01`, `pump_01`) that marked fans and
+> lights as dimmable. That list predated two decisions: ten appliances including
+> the EV charger, and **no dimming of fans or lights at all** (D2). There is no
+> water pump on the rig. The old ids share nothing with these, so any code still
+> using them renders nothing and throws nothing - check yours.
+
+**The EV charger is represented by a toy car.** No electric vehicle appears in
+IRES 2020, so it is handled through the Deferrable class and must be labelled a
+forward-looking extension wherever it is shown.
 
 **Watts are 15-minute mean power, not nameplate.** A real CT clamp will read
 nothing like these during a compressor cycle. That is expected, not a fault.
