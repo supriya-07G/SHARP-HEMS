@@ -10,13 +10,28 @@ wins, because it was written against the validated model.
 
 ---
 
-## 0. Three screens, not one
+## 0. The roles
 
-| Screen | Audience | Shows |
-|---|---|---|
-| **Resident** | the citizen | appliances, protected vs shed, overrides |
-| **Grid controller** | the DISCOM | declare peak, severity, homes responding, MW relieved |
-| Rig OLED | the room | what the hardware itself believes |
+The idea book §43 names four roles. Two of them carry the demo.
+
+| Role | Audience | Shows | For the demo |
+|---|---|---|---|
+| **Resident** | the citizen | appliances, protected vs shed, overrides, consent | **Core** |
+| **Grid controller** | the DISCOM | declare peak, severity, homes responding, MW relieved | **Core** |
+| Team / admin | the team | registries, models, experiments | Later |
+| Hardware operator | Charu, Harini | device health, actuation faults, maintenance | Later |
+| Rig OLED | the room | what the hardware itself believes | **Core** |
+
+**The grid controller is core, not future scope.** The idea book calls it "a
+future grid controller"; that is superseded. Without it there is nothing to
+*show* declaring a peak, and the demo's whole narrative is: the grid asks, the
+household answers, and nobody is blacked out. It is the screen that makes the
+equity claim visible rather than asserted.
+
+What does not change is the limit the idea book puts on it: a grid controller
+**may publish authenticated events but can never bypass household safety**.
+`apply_shield` raises if a peak lockout names a critical load. Even the DISCOM
+cannot take your fan.
 
 The grid controller view and the peak-event mechanism are specified in
 `GRID_CONTROLLER_AND_TARIFF.md`, along with the tariff basis and the opt-out
@@ -81,7 +96,9 @@ shed, by anyone, including the resident.
 
 **Level 2 is not offered at all in this build.** A critical load is never shed
 *and never dimmed* while the occupant is using it, and the only non-critical
-dimmable appliance in these homes is the air cooler — 37 devices out of 3,353.
+dimmable appliance in these homes is the air cooler — 44 devices out of 4,124.
+(2,460 devices can physically dim, but they are overwhelmingly fans and
+lights, and a critical load is never dimmed.)
 The dashboard therefore renders **two states, ON and SHED**, and a critical load
 renders as ON with no control at all.
 
@@ -214,6 +231,60 @@ appears on screen with its reason. Violations become evidence. In validation the
 shield refused **0 of 4,103** entitled necessity requests — it never had to,
 because the agent never asked — but the panel must still render a refusal
 correctly when one occurs, and the demo script deliberately triggers one.
+
+---
+
+## 4b. The billing simulator — core, not optional
+
+Idea book §44-47. This is **Vaishnavi's named deliverable** ("billing engine")
+and it is the largest gap between what is specified and what is built.
+
+### What it computes
+
+```
+interval_kWh   = active_power_kW x interval_hours
+energy_charge  = sum(interval_kWh x tariff_rate[period])
+estimated_bill = energy_charge + fixed_charge + demand_charge + tax
+                 + penalty - rebate
+estimated_savings = baseline_estimated_bill - SHARP_estimated_bill
+```
+
+### Three scenarios, side by side
+
+**No control | Rule-based | SHARP.** One number alone means nothing; the
+comparison is the point. Be ready for the honest result: on the measured data
+the rule-based controller **wins on cost** and SHARP wins on peak and PAR. Show
+that rather than hiding it - see §10.
+
+### The bill explanation (§47)
+
+Total estimated bill, base bill without control, estimated savings,
+peak-period contribution, **per-appliance contribution**, penalty and rebate
+breakdown, and uncertainty.
+
+**The resident must be able to drill from a bill line down to the intervals and
+the decisions that produced it.** That is the requirement that makes stored
+history mandatory - a live feed alone cannot answer "why is this line this
+amount?".
+
+### Three rules that are easy to break
+
+1. **Every amount is marked simulated or estimated**, and shows the tariff
+   version and the assumptions behind it.
+2. **Never invent a penalty** and present it as a real utility charge (§46). A
+   penalty may be modelled only when the selected tariff or programme actually
+   defines one - sanctioned-load exceedance, maximum-demand charges, late
+   payment, or demand-response non-performance.
+3. **APCPDCL has no domestic time-of-day rate.** The tariff is telescopic on
+   monthly units. Any peak surcharge shown is a **proposal**, labelled as such,
+   never presented as a bill the utility would actually issue.
+
+### Out of scope for this build
+
+Utility account linking, authorised bill import, meter reconciliation and
+payment status (§48). Appliance-level *actual* billing (§49) needs submeter or
+verified disaggregation - **never claim revenue-grade appliance billing from a
+single PZEM channel or from NILM.**
 
 ---
 

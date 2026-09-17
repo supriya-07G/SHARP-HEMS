@@ -259,7 +259,9 @@ somebody.
 
 - Do not present the surcharge as operating under current APCPDCL tariffs. It is
   not in their order. It is what the 2023 Rules require and this DISCOM has yet
-  to implement.
+  to implement. Every amount the billing simulator shows under this mechanism is
+  a **proposal**, and every figure it displays is **simulated** - labelled as
+  such, with the tariff version and the assumptions beside it.
 - Do not show a peak event as able to touch a fan, a light or a fridge. It
   cannot, and the shield raises rather than obeying.
 - Do not imply the opt-out charge funds the project. It is a tariff mechanism,

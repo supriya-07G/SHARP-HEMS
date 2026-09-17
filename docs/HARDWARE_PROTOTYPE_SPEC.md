@@ -41,7 +41,7 @@ families have, and degrading it is not what "restricting luxury appliances"
 means.
 
 The measured consequence, stated rather than discovered: level 2 then applies
-only to discretionary dimmables — 37 air coolers out of 3,353 devices — so
+only to discretionary dimmables — 44 air coolers out of 4,124 devices — so
 SHARP is a **binary shedder for 98.9 per cent of appliances**. It gives up about
 half the achievable peak reduction. That is the deliberate price of the
 guarantee, and the guarantee is the product.

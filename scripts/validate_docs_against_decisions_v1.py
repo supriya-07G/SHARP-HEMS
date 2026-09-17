@@ -92,6 +92,33 @@ DECISIONS = [
     },
 
     {
+        'id': 'D10',
+        'ruling': ('The grid controller screen is core to the demo, not future '
+                   'scope - but it can never bypass household safety.'),
+        'forbidden': [r'grid controller.{0,40}future scope',
+                      r'future scope.{0,40}grid controller'],
+        'exempt_phrases': ['superseded', 'is core', 'not future'],
+        'required_in': {
+            'DASHBOARD_SPECIFICATION.md': r'never bypass household safety|'
+                                          r'cannot bypass household safety',
+            'GRID_CONTROLLER_AND_TARIFF.md': r'never cuts essential service|'
+                                             r'restricts luxury',
+        },
+    },
+    {
+        'id': 'D11',
+        'ruling': ('The billing simulator is core to the demo. It compares '
+                   'no-control, rule-based and SHARP, marks every amount '
+                   'simulated, and never invents a penalty.'),
+        'forbidden': [r'billing.{0,30}future scope',
+                      r'billing simulator.{0,30}optional'],
+        'exempt_phrases': ['is core', 'not optional', 'superseded'],
+        'required_in': {
+            'DASHBOARD_SPECIFICATION.md': r'simulated|estimated',
+            'GRID_CONTROLLER_AND_TARIFF.md': r'proposal|simulated',
+        },
+    },
+    {
         'id': 'D9',
         'ruling': 'No PZEM in this build: measured_w is null, never a simulated value.',
         # Only genuine conflation, not a line that names both fields in order
