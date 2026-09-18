@@ -60,6 +60,18 @@ export interface ApplianceState {
   deferred_until?: string | null;
 }
 
+export interface WeatherData {
+  outdoor_temperature_c: number;
+  relative_humidity_pct: number;
+  solar_irradiance_wm2: number;
+  heat_index_c: number;
+  wind_speed_kmh: number;
+  weather_condition: string;
+  location: string;
+  last_updated: string;
+  is_extreme_heat: boolean;
+}
+
 export interface HomeState {
   house_id: string;
   timestamp_ist: string;
@@ -77,6 +89,7 @@ export interface HomeState {
   battery_state_of_charge: number;
   grid_absent: boolean;
   appliances: ApplianceState[];
+  weather?: WeatherData;
   data_age_seconds?: number;
   step_id?: number;
 }

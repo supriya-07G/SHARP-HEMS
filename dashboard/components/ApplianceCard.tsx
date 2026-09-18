@@ -165,43 +165,49 @@ export function ApplianceCard({
       )}
 
       {/* Action / Control Section:
-          CRITICAL INVARIANT:
-          Protected appliances must NOT have OFF/SHED controls rendered!
+          The Pi / System CANNOT shed necessity loads automatically during peak events.
+          HOWEVER, the human resident may always manually toggle their own appliances ON/OFF.
       */}
-      <div className="mt-3.5 pt-2.5 border-t border-[#e5eaf2] flex items-center justify-between">
-        {isNecessity ? (
-          <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-mono font-medium">
-            <Shield className="h-3.5 w-3.5 text-emerald-600" />
-            <span>Shield Guarantee: Always ON</span>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between w-full">
-            <span className="text-[12px] font-medium text-[#6b7c93]">
-              Power Toggle:
+      <div className="mt-3.5 pt-2.5 border-t border-[#e5eaf2] flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium">
+          {isNecessity ? (
+            <span className="inline-flex items-center gap-1 text-emerald-700 font-mono" title="System cannot shed this load automatically">
+              <Shield className="h-3.5 w-3.5 text-emerald-600" />
+              <span>System Protected</span>
             </span>
+          ) : (
+            <span className="text-slate-500 font-mono">
+              Demand Response
+            </span>
+          )}
+        </div>
 
-            <button
-              type="button"
-              onClick={() => onOverride && onOverride(appliance.appliance_id, isRunning ? 0 : 1)}
-              disabled={isLoading}
-              title={isRunning ? "Turn Appliance OFF" : "Turn Appliance ON"}
-              className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isRunning ? 'bg-emerald-500 focus:ring-emerald-500' : 'bg-rose-500 focus:ring-rose-500'
-              } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
-              role="switch"
-              aria-checked={isRunning}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-slate-500 hidden sm:inline">
+            {isNecessity ? 'Human Switch:' : 'Power Toggle:'}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => onOverride && onOverride(appliance.appliance_id, isRunning ? 0 : 1)}
+            disabled={isLoading}
+            title={isRunning ? "Turn Appliance OFF (Manual Resident Action)" : "Turn Appliance ON (Manual Resident Action)"}
+            className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isRunning ? 'bg-emerald-500 focus:ring-emerald-500' : 'bg-rose-500 focus:ring-rose-500'
+            } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+            role="switch"
+            aria-checked={isRunning}
+          >
+            <span className="sr-only">Toggle appliance power</span>
+            <span
+              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out flex items-center justify-center text-[9px] font-extrabold ${
+                isRunning ? 'translate-x-7 text-emerald-600' : 'translate-x-0 text-rose-600'
+              }`}
             >
-              <span className="sr-only">Toggle appliance power</span>
-              <span
-                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out flex items-center justify-center text-[9px] font-extrabold ${
-                  isRunning ? 'translate-x-7 text-emerald-600' : 'translate-x-0 text-rose-600'
-                }`}
-              >
-                {isRunning ? 'ON' : 'OFF'}
-              </span>
-            </button>
-          </div>
-        )}
+              {isRunning ? 'ON' : 'OFF'}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -57,9 +57,9 @@ export function GridQuickNav({
   severity,
 }: GridQuickNavProps) {
   return (
-    <nav className="mb-6 rounded-[20px] p-2"
+    <nav className="mb-6 rounded-[20px] p-2 overflow-x-auto scrollbar-none"
          style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
-      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+      <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 min-w-max sm:min-w-0">
         <div className="hidden sm:flex items-center px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[var(--slate-soft)]">
           Grid Quick Links
         </div>

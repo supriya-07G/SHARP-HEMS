@@ -145,17 +145,15 @@ export function Panel4Appliances({
               </h3>
 
               <p className="text-xs text-slate-500">
-                Guaranteed uninterrupted power. Control buttons
-                are omitted by design—these loads can never be
-                shed.
+                Protected from automated grid shedding. Residents can manually switch these on/off at will.
               </p>
             </div>
           </div>
 
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e5eaf2] bg-[#eaf4ff] px-2.5 py-1 font-mono text-xs font-semibold text-[#0f2d4a]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#a9d0fa] animate-pulse" />
-            {protectedAppliances.length} OF{' '}
-            {protectedAppliances.length} ACTIVE
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            {protectedAppliances.filter((a) => a.level === 1).length} OF{' '}
+            {protectedAppliances.length} ON
           </span>
         </div>
 
@@ -164,6 +162,7 @@ export function Panel4Appliances({
             <ApplianceCard
               key={app.appliance_id}
               appliance={app}
+              onOverride={handleOverride}
               isLoading={
                 loadingApplianceId === app.appliance_id
               }

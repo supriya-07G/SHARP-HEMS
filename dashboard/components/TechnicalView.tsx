@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { HomeState, PeakEvent } from '@/lib/contracts';
 import { TechQuickNav, TechTab } from './TechQuickNav';
+import { WeatherCard } from './WeatherCard';
 
 const LEAD_TIME = { min: 5, max: 15, step: 5, default: 15 };
 
@@ -131,7 +132,10 @@ export function TechnicalView({ homeState, peakEvent, initialTab = 'policy' }: P
 
       {/* ---------------- TAB 3: LIVE TELEMETRY ---------------- */}
       {activeTab === 'telemetry' && (
-        <section className="card p-6 space-y-4">
+        <div className="space-y-6">
+          <WeatherCard weather={homeState.weather} />
+
+          <section className="card p-6 space-y-4">
           <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
             <div>
               <p className="eyebrow">Live State</p>
@@ -165,6 +169,7 @@ export function TechnicalView({ homeState, peakEvent, initialTab = 'policy' }: P
             Appliance power is derived from verified switch state multiplied by a catalogued wattage. <code>measured_w</code> is null because no meter is fitted — faking it would make a stuck relay invisible.
           </p>
         </section>
+        </div>
       )}
     </div>
   );

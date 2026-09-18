@@ -73,9 +73,9 @@ export function TopQuickNav({
   protectedCount,
 }: TopQuickNavProps) {
   return (
-    <nav className="mb-6 rounded-[22px] p-2 sm:p-2.5 transition-all shadow-sm"
+    <nav className="mb-6 rounded-[22px] p-2 sm:p-2.5 transition-all shadow-sm overflow-x-auto scrollbar-none"
          style={{ background: 'linear-gradient(180deg, #ffffff 0%, #f0f7ff 100%)', border: '1px solid #bae6fd' }}>
-      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+      <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 min-w-max sm:min-w-0">
         <div className="hidden sm:flex items-center px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-sky-700">
           Quick Links
         </div>

@@ -7,6 +7,7 @@ import {
   SystemConnectionStatus,
   ActionLevel,
   CommandAck,
+  WeatherData,
 } from './contracts';
 import {
   NORMAL_HOME_STATE,
@@ -63,6 +64,7 @@ export interface UseHomeStateReturn {
   cancelPeakEvent: () => void;
   lastAck: CommandAck | null;
   clearLastAck: () => void;
+  setWeather: (weather: WeatherData) => void;
 }
 
 export function useHomeState(): UseHomeStateReturn {
@@ -412,6 +414,16 @@ export function useHomeState(): UseHomeStateReturn {
     []
   );
 
+  const setWeather = useCallback((weatherData: WeatherData) => {
+    startTransition(() => {
+      setHomeState((prev) => ({
+        ...prev,
+        outdoor_temperature_c: weatherData.outdoor_temperature_c,
+        weather: weatherData,
+      }));
+    });
+  }, []);
+
   // ============================================================
   // RETURN
   // ============================================================
@@ -427,5 +439,6 @@ export function useHomeState(): UseHomeStateReturn {
     cancelPeakEvent,
     lastAck,
     clearLastAck,
+    setWeather,
   };
 }

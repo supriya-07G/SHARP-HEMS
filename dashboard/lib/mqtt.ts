@@ -9,7 +9,7 @@
  */
 
 import mqtt, { MqttClient } from 'mqtt';
-import { Feed, HomeState, Intent } from './contracts';
+import { Feed, HomeState, Intent, WeatherData } from './contracts';
 
 const HOUSE = process.env.NEXT_PUBLIC_HOUSE_ID ?? 'demo';
 
@@ -232,4 +232,49 @@ export function connectFeed({ onFeed }: FeedHandlers): () => void {
 
     client?.end(true);
   };
+}
+
+/**
+ * Publish Weather Payload to Raspberry Pi over MQTT (`home/${HOUSE}/weather`)
+ */
+export function publishWeatherStream(weather: WeatherData): boolean {
+  const url = process.env.NEXT_PUBLIC_MQTT_URL;
+  if (!url) {
+    console.warn('⚠️ MQTT URL not configured. Cannot stream weather payload.');
+    return false;
+  }
+
+  try {
+    const client = mqtt.connect(url, {
+      username: process.env.NEXT_PUBLIC_MQTT_USER,
+      password: process.env.NEXT_PUBLIC_MQTT_PASS,
+      reconnectPeriod: 0,
+      connectTimeout: 5000,
+    });
+
+    client.on('connect', () => {
+      const topic = `home/${HOUSE}/weather`;
+      const payload = JSON.stringify({
+        source: 'sharp_dashboard_weather_gateway',
+        timestamp: new Date().toISOString(),
+        weather,
+      });
+
+      client.publish(topic, payload, { qos: 0 }, (err) => {
+        if (err) console.error('❌ Failed to publish weather stream:', err);
+        else console.log('📡 Published Weather Payload to Pi:', topic, weather);
+        client.end();
+      });
+    });
+
+    client.on('error', (err) => {
+      console.error('❌ MQTT Weather Client Error:', err);
+      client.end();
+    });
+
+    return true;
+  } catch (err) {
+    console.error('❌ Exception publishing weather:', err);
+    return false;
+  }
 }

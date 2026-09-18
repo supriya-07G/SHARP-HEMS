@@ -15,6 +15,7 @@ import { MetricsPanel } from './MetricsPanel';
 import { BillPanel } from './BillPanel';
 import { PeakAlert } from './PeakAlert';
 import { TopQuickNav, FeatureTab } from './TopQuickNav';
+import { WeatherCard } from './WeatherCard';
 import { LoadProfilePoint } from '@/lib/mockState';
 
 interface ResidentViewProps {
@@ -81,6 +82,8 @@ export function ResidentView({
       {/* ----------------- TAB 1: OVERVIEW ----------------- */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          <WeatherCard weather={homeState.weather} />
+
           <PeakEventCard peakEvent={peakEvent} />
 
           {/* Quick Action Navigation Tiles */}
