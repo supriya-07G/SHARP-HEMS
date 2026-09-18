@@ -86,24 +86,23 @@ export function TopBar({
       {/* Hero band. The artwork is clipped by the band, so it can never
           collide with the copy however the viewport changes. */}
       <div
-        className="relative overflow-hidden rounded-[22px] px-6 py-6 sm:px-8 sm:py-8 xl:min-h-[176px]"
+        className="relative overflow-hidden rounded-[24px] px-6 py-6 sm:px-8 sm:py-8 xl:min-h-[176px] shadow-sm"
         style={{
           background:
-            'linear-gradient(112deg,#eaf3ff 0%,#f4f9ff 46%,#edf7f1 100%)',
-          border: '1px solid #e3edf8',
+            'linear-gradient(135deg, #dbeafe 0%, #eff6ff 50%, #e0f2fe 100%)',
+          border: '1px solid #bfdbfe',
         }}
       >
-        <HomeIllustration className="pointer-events-none absolute bottom-0 right-0 hidden h-[172px] w-[392px] xl:block" />
+        <HomeIllustration className="pointer-events-none absolute bottom-0 right-0 hidden h-[172px] w-[392px] xl:block opacity-95" />
 
         <div className="relative max-w-[540px]">
-          <p className="eyebrow">Guntur · APCPDCL</p>
+          <p className="eyebrow font-bold text-blue-700">Guntur · APCPDCL</p>
           <h1
-            className="mt-2 text-[30px] sm:text-[36px] font-semibold tracking-tight leading-[1.08]"
-            style={{ color: 'var(--navy)' }}
+            className="mt-2 text-[32px] sm:text-[38px] font-extrabold tracking-tight leading-[1.08] text-[#0f172a]"
           >
             {greeting(timestampIst)}
           </h1>
-          <p className="mt-2.5 text-[14px] leading-relaxed" style={{ color: 'var(--slate)' }}>
+          <p className="mt-2.5 text-[14.5px] font-medium leading-relaxed text-[#334155]">
             {SUBTITLE[role]}
           </p>
         </div>

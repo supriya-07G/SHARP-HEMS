@@ -57,12 +57,17 @@ const ICON = {
   ),
 };
 
+import { FeatureTab } from '@/components/TopQuickNav';
+import { GridTab } from '@/components/GridQuickNav';
+import { TechTab } from '@/components/TechQuickNav';
+
 interface Props {
   /** Which view this URL opens on. The switcher still works from any of them. */
   initialRole?: Role;
+  initialTab?: FeatureTab | GridTab | TechTab;
 }
 
-export function DashboardShell({ initialRole = DEFAULT_ROLE }: Props) {
+export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props) {
   const router = useRouter();
   const [role, setRole] = useState<Role>(initialRole);
 
@@ -160,6 +165,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE }: Props) {
                 onOverride={triggerOverride}
                 lastAck={lastAck}
                 onClearAck={clearLastAck}
+                initialTab={initialTab as FeatureTab}
               />
             )}
             {role === 'grid' && (
@@ -168,6 +174,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE }: Props) {
                 homeState={homeState}
                 onDeclarePeak={declarePeakEvent}
                 onCancelPeak={cancelPeakEvent}
+                initialTab={initialTab as GridTab}
               />
             )}
             {role === 'technical' && (
@@ -176,6 +183,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE }: Props) {
                 peakEvent={peakEvent}
                 activeScenario={activeScenario}
                 onScenarioChange={setScenario}
+                initialTab={initialTab as TechTab}
               />
             )}
           </div>

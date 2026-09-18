@@ -39,7 +39,7 @@ export function PeakAlert({
   const shownAt = useRef<number>(0);
   const [secondsLeft, setSecondsLeft] = useState(leadTimeMinutes * 60);
   const [prevLeadTime, setPrevLeadTime] = useState(leadTimeMinutes);
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosenIds, setChosenIds] = useState<string[]>([]);
 
   if (prevLeadTime !== leadTimeMinutes) {
     setPrevLeadTime(leadTimeMinutes);
@@ -75,7 +75,9 @@ export function PeakAlert({
   const ss = String(secondsLeft % 60).padStart(2, '0');
 
   const handleKeep = (a: ApplianceState) => {
-    setChosen(a.appliance_id);
+    if (!chosenIds.includes(a.appliance_id)) {
+      setChosenIds((prev) => [...prev, a.appliance_id]);
+    }
     // The latency IS the preference signal. Measure it from when the resident
     // could first have acted.
     // eslint-disable-next-line react-hooks/purity
@@ -130,35 +132,41 @@ export function PeakAlert({
         </button>
       </div>
 
-      {/* Pay to keep one running. Opt-out, as Critical Peak Pricing does. */}
+      {/* Pay to keep appliances running. Opt-out, as Critical Peak Pricing does. */}
       {affected.length > 0 && (
         <div className="mt-4 rounded-[13px] p-3.5"
              style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <p className="text-[12px] font-semibold" style={{ color: 'var(--navy)' }}>
-            Keep one running through the event?
+            Keep appliances running through the event?
           </p>
           <p className="mt-0.5 text-[11px]" style={{ color: 'var(--slate)' }}>
-            About ₹{PROPOSED_OPT_OUT_INR_PER_EVENT.toFixed(2)} for this event.{' '}
+            About ₹{PROPOSED_OPT_OUT_INR_PER_EVENT.toFixed(2)} per device for this event.{' '}
             <em>Proposed tariff, not an APCPDCL charge today.</em>
           </p>
 
           <div className="mt-2.5 flex flex-wrap gap-2">
-            {affected.map((a) => (
-              <button
-                key={a.appliance_id}
-                type="button"
-                className="btn btn-primary"
-                disabled={chosen !== null}
-                onClick={() => handleKeep(a)}
-              >
-                Keep {a.display_name ?? a.appliance_id} on
-              </button>
-            ))}
+            {affected.map((a) => {
+              const isChosen = chosenIds.includes(a.appliance_id);
+              return (
+                <button
+                  key={a.appliance_id}
+                  type="button"
+                  className={`btn transition-all ${
+                    isChosen
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 font-semibold'
+                      : 'btn-primary'
+                  }`}
+                  onClick={() => handleKeep(a)}
+                >
+                  {isChosen ? `✓ Keeping ${a.display_name ?? a.appliance_id} on` : `Keep ${a.display_name ?? a.appliance_id} on`}
+                </button>
+              );
+            })}
           </div>
 
-          {chosen && (
+          {chosenIds.length > 0 && (
             <p className="mt-2.5 text-[11.5px]" style={{ color: 'var(--primary-ink)' }}>
-              Requested. The Pi decides — if the circuit has no power during the
+              Requested for {chosenIds.length} {chosenIds.length === 1 ? 'device' : 'devices'}. The Pi decides — if the circuit has no power during the
               event, it will refuse and tell you why.
             </p>
           )}

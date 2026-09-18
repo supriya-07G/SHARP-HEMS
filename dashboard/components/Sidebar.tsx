@@ -9,9 +9,10 @@
  * resident, the DISCOM and the technical views.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { HomeIllustration } from '@/components/HomeIllustration';
 import { Role } from '@/lib/roles';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Props {
   role: Role;
@@ -24,7 +25,9 @@ const NAV: Array<{ id: Role; label: string; hint: string; icon: React.ReactNode 
     label: 'My Home',
     hint: 'Appliances and overrides',
     icon: (
-      <path d="M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5" strokeLinecap="round" strokeLinejoin="round" />
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     ),
   },
   {
@@ -32,7 +35,9 @@ const NAV: Array<{ id: Role; label: string; hint: string; icon: React.ReactNode 
     label: 'Grid Control',
     hint: 'Declare a peak event',
     icon: (
-      <path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9Z" strokeLinecap="round" strokeLinejoin="round" />
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9Z" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     ),
   },
   {
@@ -40,42 +45,56 @@ const NAV: Array<{ id: Role; label: string; hint: string; icon: React.ReactNode 
     label: 'Technical',
     hint: 'Model, registry, settings',
     icon: (
-      <>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="3" />
         <path d="M12 2v3m0 14v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M2 12h3m14 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"
               strokeLinecap="round" />
-      </>
+      </svg>
     ),
   },
 ];
 
 export function Sidebar({ role, onRoleChange }: Props) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   return (
     <aside
-      className="hidden lg:flex lg:flex-col w-[248px] shrink-0 px-5 py-6"
-      style={{ background: 'linear-gradient(180deg,#eef6ff 0%,#f6faff 55%)' }}
+      className={`hidden lg:flex lg:flex-col shrink-0 py-6 border-r border-[#cbd5e1] transition-all duration-300 ease-in-out ${
+        isCollapsed ? 'w-[76px] px-3' : 'w-[256px] px-5'
+      }`}
+      style={{ background: 'linear-gradient(180deg, #e0f2fe 0%, #bae6fd 45%, #f0f9ff 100%)' }}
     >
-      {/* Brand */}
-      <div className="px-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[22px] font-semibold tracking-tight"
-                style={{ color: 'var(--navy)' }}>
-            SHARP
+      {/* Brand & Toggle */}
+      <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-3' : 'justify-between px-2'}`}>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white font-extrabold shadow-sm text-base">
+            S
           </span>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-               stroke="var(--primary)" strokeWidth="1.8" aria-hidden>
-            <path d="M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5"
-                  strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          {!isCollapsed && (
+            <span className="text-[22px] font-extrabold tracking-tight text-[#0f172a]">
+              SHARP
+            </span>
+          )}
         </div>
-        <p className="mt-1.5 text-[10px] font-semibold uppercase leading-[1.5]"
-           style={{ color: 'var(--slate-soft)', letterSpacing: '0.13em' }}>
-          A smarter home<br />for tomorrow
-        </p>
+
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+          className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/90 text-slate-700 hover:bg-white hover:text-blue-600 transition-all border border-sky-200 shadow-sm cursor-pointer"
+        >
+          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
       </div>
 
+      {!isCollapsed && (
+        <p className="mt-2 px-2 text-[10px] font-bold uppercase leading-[1.5] text-slate-600 tracking-wider">
+          A smarter home<br />for tomorrow
+        </p>
+      )}
+
       {/* Role navigation */}
-      <nav className="mt-8 space-y-1" aria-label="Views">
+      <nav className="mt-8 space-y-2" aria-label="Views">
         {NAV.map((item) => {
           const active = role === item.id;
           return (
@@ -84,28 +103,30 @@ export function Sidebar({ role, onRoleChange }: Props) {
               type="button"
               onClick={() => onRoleChange(item.id)}
               aria-current={active ? 'page' : undefined}
-              className="w-full text-left rounded-[13px] px-3 py-2.5 flex items-center gap-3 transition-colors"
+              title={isCollapsed ? item.label : undefined}
+              className={`w-full text-left rounded-[16px] transition-all cursor-pointer flex items-center ${
+                isCollapsed ? 'justify-center p-3' : 'px-3.5 py-3 gap-3.5'
+              }`}
               style={{
-                background: active ? 'var(--surface)' : 'transparent',
-                boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
+                background: active ? 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)' : 'transparent',
+                boxShadow: active ? '0 4px 14px rgba(37,99,235,0.12)' : 'none',
+                border: `1px solid ${active ? '#93c5fd' : 'transparent'}`,
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                   stroke={active ? 'var(--primary)' : 'var(--slate)'}
-                   strokeWidth="1.8" aria-hidden>
+              <span className={`shrink-0 ${active ? 'text-blue-600' : 'text-slate-600'}`}>
                 {item.icon}
-              </svg>
-              <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold leading-tight"
-                      style={{ color: active ? 'var(--navy)' : 'var(--slate)' }}>
-                  {item.label}
-                </span>
-                <span className="block text-[10.5px] truncate"
-                      style={{ color: 'var(--slate-soft)' }}>
-                  {item.hint}
-                </span>
               </span>
+              
+              {!isCollapsed && (
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-bold leading-tight" style={{ color: active ? '#1e40af' : '#1e293b' }}>
+                    {item.label}
+                  </span>
+                  <span className="block text-[11px] truncate" style={{ color: active ? '#3b82f6' : '#64748b' }}>
+                    {item.hint}
+                  </span>
+                </span>
+              )}
             </button>
           );
         })}
@@ -113,23 +134,20 @@ export function Sidebar({ role, onRoleChange }: Props) {
 
       <div className="flex-1" />
 
-      {/* Closing note. Also the honesty line - it belongs where it is always
-          visible, not buried in a footer nobody scrolls to. */}
-      <HomeIllustration compact className="mb-3 h-[94px] w-full opacity-90" />
-
-      <div className="rounded-[16px] p-4"
-           style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-        <p className="text-[13px] font-semibold leading-snug" style={{ color: 'var(--navy)' }}>
-          Small changes,<br />big impact
-        </p>
-        <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'var(--slate)' }}>
-          Current for all, whatever the hour.
-        </p>
-        <p className="mt-3 pt-3 text-[10px] leading-relaxed"
-           style={{ color: 'var(--slate-soft)', borderTop: '1px solid var(--border)' }}>
-          Prototype. Wattages are simulated; no meter is fitted.
-        </p>
-      </div>
+      {/* Footer Illustration & Note */}
+      {!isCollapsed && (
+        <>
+          <HomeIllustration compact className="mb-3 h-[94px] w-full opacity-90" />
+          <div className="rounded-[16px] p-4 bg-white border border-[#cbd5e1] shadow-sm">
+            <p className="text-[13px] font-bold leading-snug text-[#0f172a]">
+              Small changes,<br />big impact
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+              Current for all, whatever the hour.
+            </p>
+          </div>
+        </>
+      )}
     </aside>
   );
 }
