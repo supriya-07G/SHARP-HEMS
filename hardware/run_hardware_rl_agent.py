@@ -226,6 +226,24 @@ def on_message(client, userdata, msg):
             print(f"🌤️ Received Weather Stream from Dashboard: {weather.get('outdoor_temperature_c')}°C, Humidity: {weather.get('relative_humidity_pct')}%")
             # Weather feeds into outdoor_temperature_c feature in state vector for next inference step
 
+        elif topic.startswith(f"home/{HOUSE_ID}/override/"):
+            appliance_id = topic.split("/")[-1]
+            requested_level = payload.get("requested_level", 0)
+            print(f"⚡ DIRECT MANUAL OVERRIDE from Dashboard: {appliance_id} -> Level {requested_level} ({'ON' if requested_level == 1 else 'OFF'})")
+            
+            # Immediately drive physical GPIO relay pin
+            set_hardware_pin(appliance_id, 1 if requested_level == 1 else 0)
+
+            # Publish Execution ACK back to Dashboard
+            ack_payload = {
+                "source": "raspberry_pi_hardware_relay",
+                "timestamp": time.time(),
+                "appliance_id": appliance_id,
+                "applied_level": requested_level,
+                "status": "EXECUTED"
+            }
+            client.publish(ACTUATOR_ACK_TOPIC, json.dumps(ack_payload))
+
     except Exception as e:
         print(f"❌ Error processing message on {msg.topic}: {e}")
 
