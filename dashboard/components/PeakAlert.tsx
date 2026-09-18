@@ -36,13 +36,18 @@ interface Props {
 export function PeakAlert({
   leadTimeMinutes, affected, severity, onKeepOn, onDismiss,
 }: Props) {
-  const shownAt = useRef<number>(Date.now());
+  const shownAt = useRef<number>(0);
   const [secondsLeft, setSecondsLeft] = useState(leadTimeMinutes * 60);
+  const [prevLeadTime, setPrevLeadTime] = useState(leadTimeMinutes);
   const [chosen, setChosen] = useState<string | null>(null);
+
+  if (prevLeadTime !== leadTimeMinutes) {
+    setPrevLeadTime(leadTimeMinutes);
+    setSecondsLeft(leadTimeMinutes * 60);
+  }
 
   useEffect(() => {
     shownAt.current = Date.now();
-    setSecondsLeft(leadTimeMinutes * 60);
   }, [leadTimeMinutes]);
 
   useEffect(() => {
@@ -69,11 +74,14 @@ export function PeakAlert({
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
 
-  const keep = (a: ApplianceState) => {
+  const handleKeep = (a: ApplianceState) => {
     setChosen(a.appliance_id);
     // The latency IS the preference signal. Measure it from when the resident
     // could first have acted.
-    onKeepOn(a.appliance_id, Date.now() - shownAt.current);
+    // eslint-disable-next-line react-hooks/purity
+    const now = Date.now();
+    const start = shownAt.current || now;
+    onKeepOn(a.appliance_id, now - start);
   };
 
   return (
@@ -141,7 +149,7 @@ export function PeakAlert({
                 type="button"
                 className="btn btn-primary"
                 disabled={chosen !== null}
-                onClick={() => keep(a)}
+                onClick={() => handleKeep(a)}
               >
                 Keep {a.display_name ?? a.appliance_id} on
               </button>

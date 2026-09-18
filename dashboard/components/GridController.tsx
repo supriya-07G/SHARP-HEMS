@@ -17,7 +17,7 @@ import { PeakEvent, HomeState } from '@/lib/contracts';
 
 interface GridControllerProps {
   peakEvent: PeakEvent;
-  homeState: HomeState;
+  homeState?: HomeState;
   onDeclarePeak: (
     severity: number,
     durationMinutes: number
@@ -27,7 +27,6 @@ interface GridControllerProps {
 
 export function GridController({
   peakEvent,
-  homeState,
   onDeclarePeak,
   onCancelPeak,
 }: GridControllerProps) {

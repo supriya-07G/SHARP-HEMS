@@ -121,12 +121,10 @@ export function marginalRate(units: number): { rate: number; name: string } {
 }
 
 function customerCharge(units: number): number {
-  let lower = 0;
   for (const slab of TARIFF.slabs) {
     if (slab.upper_kwh === null || units <= slab.upper_kwh) {
       return slab.customer_inr_month;
     }
-    lower = slab.upper_kwh;
   }
   return TARIFF.slabs[TARIFF.slabs.length - 1].customer_inr_month;
 }

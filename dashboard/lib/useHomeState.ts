@@ -400,7 +400,7 @@ export function useHomeState(): UseHomeStateReturn {
 
       return defaultAck;
     },
-    [homeState.appliances, peakEvent.is_active]
+    [homeState.appliances, homeState.house_id, peakEvent.is_active]
   );
 
   // ============================================================

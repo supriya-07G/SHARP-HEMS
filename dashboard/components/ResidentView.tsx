@@ -1,14 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import {
-  Zap,
-  Activity,
-  Thermometer,
-  CloudSun,
-  Calendar,
-  IndianRupee,
-} from 'lucide-react';
 
 import {
   HomeState,
@@ -17,7 +9,6 @@ import {
   CommandAck,
 } from '@/lib/contracts';
 
-import { StatCard } from './StatCard';
 import { PeakEventCard } from './PeakEventCard';
 import { PowerChart } from './PowerChart';
 import { Panel4Appliances } from './Panel4Appliances';
@@ -49,16 +40,12 @@ export function ResidentView({
   // Dismissing the notice is per-event, not permanent: the resident said
   // "fine by me" to THIS peak, not to every peak from now on.
   const [alertDismissed, setAlertDismissed] = useState(false);
-  React.useEffect(() => setAlertDismissed(false), [peakEvent.event_id]);
+  const [prevEventId, setPrevEventId] = useState(peakEvent.event_id);
 
-  const isPeakActive =
-    homeState.grid_peak_severity >= 0.4 ||
-    peakEvent.is_active;
-
-  const loadPercentage =
-    (homeState.aggregate_power_kw /
-      homeState.sanctioned_load_kw) *
-    100;
+  if (prevEventId !== peakEvent.event_id) {
+    setPrevEventId(peakEvent.event_id);
+    setAlertDismissed(false);
+  }
 
   return (
     <div className="space-y-6">

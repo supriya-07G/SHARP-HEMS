@@ -19,7 +19,6 @@ interface PeakEventCardProps {
 
 export function PeakEventCard({
   peakEvent,
-  onDismiss,
 }: PeakEventCardProps) {
   if (!peakEvent.is_active) {
     return (
