@@ -2,10 +2,14 @@ import os
 import json
 import ssl
 import time
+
 from pathlib import Path
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from collections import deque
 
 import paho.mqtt.client as mqtt
+
 from dotenv import load_dotenv
 
 
@@ -13,85 +17,139 @@ from dotenv import load_dotenv
 # CONFIG
 # ============================================================
 
-ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / ".env")
+ROOT = Path(
+    __file__
+).resolve().parents[1]
 
-MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
-MQTT_USER = os.getenv("MQTT_USER")
-MQTT_PASS = os.getenv("MQTT_PASS")
+load_dotenv(
+    ROOT / ".env"
+)
 
-HOUSE_ID = "demo"
+MQTT_HOST = os.getenv(
+    "MQTT_HOST"
+)
+
+MQTT_PORT = int(
+    os.getenv(
+        "MQTT_PORT",
+        "8883",
+    )
+)
+
+MQTT_USER = os.getenv(
+    "MQTT_USER"
+)
+
+MQTT_PASS = os.getenv(
+    "MQTT_PASS"
+)
+
+HOUSE_ID = os.getenv(
+    "HOUSE_ID",
+    "demo",
+)
 
 
 # ============================================================
-# PI MQTT TOPICS
+# GPIO MODE
 # ============================================================
 
-# Pi receives commands from the RL/controller layer.
-ACTUATOR_CMD_SUB = f"home/{HOUSE_ID}/actuator/+/cmd"
+GPIO_ENABLED = (
+    os.getenv(
+        "GPIO_ENABLED",
+        "false",
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
 
-# Pi receives resident override requests.
-OVERRIDE_SUB = f"home/{HOUSE_ID}/override/+"
-
-# Pi publishes execution acknowledgements.
-ACTUATOR_ACK_PREFIX = f"home/{HOUSE_ID}/actuator"
+RELAY_ACTIVE_LOW = (
+    os.getenv(
+        "RELAY_ACTIVE_LOW",
+        "false",
+    ).lower()
+    in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+)
 
 
 # ============================================================
-# HARDWARE REGISTRY
+# MQTT TOPICS
 # ============================================================
 
-# BCM GPIO numbers from the prototype specification.
-# GPIO is NOT actually driven yet.
+ACTUATOR_CMD_SUB = (
+    f"home/{HOUSE_ID}/"
+    "actuator/+/cmd"
+)
+
+OVERRIDE_SUB = (
+    f"home/{HOUSE_ID}/"
+    "override/+"
+)
+
+ACTUATOR_ACK_PREFIX = (
+    f"home/{HOUSE_ID}/"
+    "actuator"
+)
+
+HEALTH_TOPIC = (
+    f"home/{HOUSE_ID}/"
+    "health/pi"
+)
+
+
+# ============================================================
+# FROZEN SHARP HARDWARE REGISTRY
+# ============================================================
 
 DEVICES = {
-    "ceiling_fan": {
+
+    "air_conditioner_01": {
+        "gpio": None,
+
+        "level_gpios": {
+            0: 4,
+            1: 5,
+            2: 6,
+        },
+
+        "necessity": False,
+        "supports_reduced": True,
+    },
+
+    "refrigerator_01": {
+        "gpio": 13,
+        "necessity": True,
+        "supports_reduced": False,
+    },
+
+    "washing_machine_01": {
         "gpio": 17,
-        "necessity": True,
-        "supports_reduced": True,
+        "necessity": False,
+        "supports_reduced": False,
     },
-    "table_fan": {
-        "gpio": 27,
-        "necessity": True,
-        "supports_reduced": True,
+
+    "mixer_grinder_01": {
+        "gpio": 18,
+        "necessity": False,
+        "supports_reduced": False,
     },
-    "light1": {
-        "gpio": 22,
-        "necessity": True,
-        "supports_reduced": True,
-    },
-    "light2": {
+
+    "television_01": {
         "gpio": 19,
-        "necessity": True,
-        "supports_reduced": True,
-    },
-    "refrigerator": {
-        "gpio": 23,
-        "necessity": True,
-        "supports_reduced": False,
-    },
-    "air_conditioner": {
-        "gpio": 16,
         "necessity": False,
         "supports_reduced": False,
     },
-    "washing_machine": {
-        "gpio": 20,
-        "necessity": False,
-        "supports_reduced": False,
-    },
-    "ev_charger": {
-        "gpio": 6,
-        "necessity": False,
-        "supports_reduced": False,
-    },
-    "tv": {
-        "gpio": 21,
-        "necessity": False,
-        "supports_reduced": False,
-    },
-    "mixer_grinder": {
+
+    "ev_charger_01": {
         "gpio": 26,
         "necessity": False,
         "supports_reduced": False,
@@ -100,90 +158,485 @@ DEVICES = {
 
 
 # ============================================================
-# CURRENT HARDWARE STATE
+# INDICATORS & DISPLAY HARDWARE
 # ============================================================
 
+BUZZER_GPIO = 12
+
+OLED_SDA_GPIO = 2
+OLED_SCL_GPIO = 3
+
+
+# ============================================================
+# STATE
+# ============================================================
+
+# Safe startup:
+# do not energise anything automatically.
+
 current_levels = {
-    device_id: 1
+    device_id: 0
     for device_id in DEVICES
 }
 
 
 # ============================================================
-# UTILITY
+# DUPLICATE COMMAND PROTECTION
 # ============================================================
 
-def timestamp_ist():
-    """
-    Temporary timestamp helper.
+MAX_SEEN_COMMANDS = 500
 
-    The actual Pi implementation can use the system's
-    synchronized local clock.
-    """
-    return datetime.now(timezone.utc).isoformat()
+seen_commands = set()
+
+seen_order = deque()
+
+
+def remember_command(
+    command_id,
+):
+
+    if not command_id:
+        return
+
+    if command_id in seen_commands:
+        return
+
+    seen_commands.add(
+        command_id
+    )
+
+    seen_order.append(
+        command_id
+    )
+
+    while (
+        len(seen_order)
+        > MAX_SEEN_COMMANDS
+    ):
+        old = (
+            seen_order.popleft()
+        )
+
+        seen_commands.discard(
+            old
+        )
+
+
+# ============================================================
+# TIME
+# ============================================================
+
+IST = ZoneInfo(
+    "Asia/Kolkata"
+)
+
+
+def timestamp_ist():
+
+    return datetime.now(
+        IST
+    ).isoformat()
+
+
+def parse_datetime(
+    value,
+):
+
+    if not value:
+        return None
+
+    if not isinstance(
+        value,
+        str,
+    ):
+        return None
+
+    try:
+        # Support JavaScript timestamps
+        # ending in Z.
+        value = value.replace(
+            "Z",
+            "+00:00",
+        )
+
+        dt = (
+            datetime.fromisoformat(
+                value
+            )
+        )
+
+        if dt.tzinfo is None:
+            dt = dt.replace(
+                tzinfo=timezone.utc
+            )
+
+        return dt
+
+    except ValueError:
+        return None
+
+
+def command_is_expired(
+    command,
+):
+
+    expires_at = parse_datetime(
+        command.get(
+            "expires_at"
+        )
+    )
+
+    if expires_at is None:
+        return False
+
+    return (
+        datetime.now(
+            timezone.utc
+        )
+        >
+        expires_at.astimezone(
+            timezone.utc
+        )
+    )
+
+
+# ============================================================
+# GPIO
+# ============================================================
+
+GPIO = None
+
+
+def raw_gpio_level(
+    logical_on,
+):
+
+    if RELAY_ACTIVE_LOW:
+        return (
+            0
+            if logical_on
+            else 1
+        )
+
+    return (
+        1
+        if logical_on
+        else 0
+    )
+
+
+def logical_gpio_state(
+    raw_state,
+):
+
+    if RELAY_ACTIVE_LOW:
+        return (
+            0
+            if raw_state
+            else 1
+        )
+
+    return (
+        1
+        if raw_state
+        else 0
+    )
+
+
+def setup_gpio():
+
+    global GPIO
+
+    if not GPIO_ENABLED:
+        print(
+            "⚠️ GPIO MODE: SIMULATED"
+        )
+        return
+
+    try:
+        import RPi.GPIO as gpio_module
+        GPIO = gpio_module
+
+    except ImportError as exc:
+        raise RuntimeError(
+            "GPIO_ENABLED=true but "
+            "RPi.GPIO is not installed"
+        ) from exc
+
+    GPIO.setwarnings(
+        False
+    )
+
+    GPIO.setmode(
+        GPIO.BCM
+    )
+
+    off_level = (
+        raw_gpio_level(
+            False
+        )
+    )
+
+    for device in (
+        DEVICES.values()
+    ):
+        pin = device.get("gpio")
+        if pin is not None:
+            GPIO.setup(
+                pin,
+                GPIO.OUT,
+                initial=off_level,
+            )
+
+        level_pins = device.get("level_gpios")
+        if level_pins:
+            for lvl_pin in level_pins.values():
+                GPIO.setup(
+                    lvl_pin,
+                    GPIO.OUT,
+                    initial=off_level,
+                )
+
+    # Setup indicator & display pins
+    GPIO.setup(
+        BUZZER_GPIO,
+        GPIO.OUT,
+        initial=off_level,
+    )
+
+    print(
+        "✅ Raspberry Pi GPIO enabled"
+    )
+
+    print(
+        "Relay polarity:",
+        (
+            "ACTIVE LOW"
+            if RELAY_ACTIVE_LOW
+            else "ACTIVE HIGH"
+        ),
+    )
+
+
+def cleanup_gpio():
+
+    if (
+        GPIO_ENABLED
+        and
+        GPIO is not None
+    ):
+        GPIO.cleanup()
 
 
 # ============================================================
 # SAFETY VALIDATION
 # ============================================================
 
-def validate_command(appliance_id, level):
-    """
-    Basic Stage-1 safety validation.
+def validate_command(
+    command,
+):
 
-    Full compressor/cycle/min-on/min-off/watchdog logic
-    will be added when we integrate the actual hardware layer.
-    """
-
-    if appliance_id not in DEVICES:
-        return False, "GPIO_FAILURE"
-
-    device = DEVICES[appliance_id]
-
-    # Level must be 0, 1, or 2.
-    if level not in (0, 1, 2):
-        return False, "LEVEL_UNSUPPORTED"
-
-    # Necessity appliances cannot be turned OFF.
-    if device["necessity"] and level == 0:
-        return False, "NECESSITY_MASK"
-
-    # Reduced level only if supported.
-    if level == 2 and not device["supports_reduced"]:
-        return False, "LEVEL_UNSUPPORTED"
-
-    return True, None
-
-
-# ============================================================
-# GPIO PLACEHOLDER
-# ============================================================
-
-def apply_gpio(appliance_id, level):
-    """
-    SIMULATED GPIO.
-
-    This does NOT touch real hardware.
-
-    Tomorrow, when running on Raspberry Pi, this function
-    will be replaced with actual GPIO output code.
-    """
-
-    print(
-        f"🔧 [SIMULATED GPIO] "
-        f"{appliance_id} -> level {level}"
+    appliance_id = (
+        command.get(
+            "appliance_id"
+        )
     )
 
-    current_levels[appliance_id] = level
+    level = command.get(
+        "level"
+    )
 
-    # Simulated GPIO state.
-    gpio_state = 1 if level != 0 else 0
+    source = command.get(
+        "source",
+        "unknown",
+    )
 
-    return gpio_state
+    occupant_wants = bool(
+        command.get(
+            "occupant_wants",
+            True,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Device must exist
+    # --------------------------------------------------------
+
+    if (
+        appliance_id
+        not in DEVICES
+    ):
+        return (
+            False,
+            "level_not_supported",
+        )
+
+    device = DEVICES[
+        appliance_id
+    ]
+
+    # --------------------------------------------------------
+    # Level contract
+    # --------------------------------------------------------
+
+    if level not in (
+        0,
+        1,
+        2,
+    ):
+        return (
+            False,
+            "level_not_supported",
+        )
+
+    # --------------------------------------------------------
+    # Level 2 not supported in current hardware prototype
+    # --------------------------------------------------------
+
+    if (
+        level == 2
+        and
+        not device[
+            "supports_reduced"
+        ]
+    ):
+        return (
+            False,
+            "level_not_supported",
+        )
+
+    # --------------------------------------------------------
+    # Automatic controller protection
+    #
+    # Resident is allowed to switch their own load OFF.
+    # SHARP itself cannot shed a necessity load that is
+    # currently wanted.
+    # --------------------------------------------------------
+
+    automatic_source = (
+        source
+        != "resident_override"
+    )
+
+    if (
+        automatic_source
+        and
+        device[
+            "necessity"
+        ]
+        and
+        occupant_wants
+        and
+        level == 0
+    ):
+        return (
+            False,
+            "necessity_mask",
+        )
+
+    # --------------------------------------------------------
+    # Expired commands
+    # --------------------------------------------------------
+
+    if command_is_expired(
+        command
+    ):
+        return (
+            False,
+            "command_expired",
+        )
+
+    return (
+        True,
+        None,
+    )
 
 
 # ============================================================
-# ACK
+# GPIO ACTUATION
+# ============================================================
+
+def apply_gpio(
+    appliance_id,
+    level,
+):
+
+    logical_on = (
+        level != 0
+    )
+
+    # --------------------------------------------------------
+    # SIMULATION MODE
+    # --------------------------------------------------------
+
+    if not GPIO_ENABLED:
+
+        print(
+            "🔧 [SIMULATED GPIO] "
+            f"{appliance_id} "
+            f"→ level {level}"
+        )
+
+        current_levels[
+            appliance_id
+        ] = level
+
+        return (
+            1
+            if logical_on
+            else 0
+        )
+
+    # --------------------------------------------------------
+    # REAL PI GPIO
+    # --------------------------------------------------------
+
+    device = DEVICES[appliance_id]
+    level_pins = device.get("level_gpios")
+
+    if level_pins:
+        # Multi-LED level control (e.g. AC level 0 -> GPIO 4, level 1 -> GPIO 5, level 2 -> GPIO 6)
+        for lvl, pin in level_pins.items():
+            is_active = (lvl == level)
+            GPIO.output(
+                pin,
+                raw_gpio_level(is_active)
+            )
+
+        active_pin = level_pins.get(level, level_pins[0])
+        raw_readback = GPIO.input(active_pin)
+        gpio_state = logical_gpio_state(raw_readback)
+        current_levels[appliance_id] = level
+
+        print(
+            f"⚡ GPIO BCM {level_pins} | {appliance_id} | level={level} (Pin {active_pin} ACTIVE) | readback={gpio_state}"
+        )
+        return int(gpio_state)
+
+    else:
+        pin = device["gpio"]
+        GPIO.output(
+            pin,
+            raw_gpio_level(logical_on),
+        )
+
+        # Read output register back.
+        raw_readback = GPIO.input(pin)
+        gpio_state = logical_gpio_state(raw_readback)
+        current_levels[appliance_id] = level
+
+        print(
+            f"⚡ GPIO BCM {pin} | "
+            f"{appliance_id} | "
+            f"level={level} | "
+            f"readback={gpio_state}"
+        )
+
+        return int(gpio_state)
+
+
+# ============================================================
+# MQTT ACK
 # ============================================================
 
 def publish_ack(
@@ -196,18 +649,51 @@ def publish_ack(
     gpio_state,
     latency_ms,
 ):
+
     ack = {
-        "schema_version": "sharp_ack_v2",
-        "command_id": command_id,
-        "appliance_id": appliance_id,
-        "accepted": accepted,
-        "applied_level": applied_level,
-        "rejected_reason": rejected_reason,
-        "gpio_state": gpio_state,
-        "measured_w": None,
-        "verification": "NO_METER",
-        "acked_at": timestamp_ist(),
-        "latency_ms": latency_ms,
+        "schema_version":
+            "sharp_ack_v2",
+
+        "command_id":
+            command_id,
+
+        "appliance_id":
+            appliance_id,
+
+        "accepted":
+            bool(
+                accepted
+            ),
+
+        "applied_level":
+            int(
+                applied_level
+            ),
+
+        "rejected_reason":
+            rejected_reason,
+
+        "gpio_state":
+            int(
+                gpio_state
+            ),
+
+        # No physical power meter in
+        # the current prototype.
+        "measured_w":
+            None,
+
+        "verification":
+            "NO_METER",
+
+        "acked_at":
+            timestamp_ist(),
+
+        "latency_ms":
+            round(
+                latency_ms,
+                3,
+            ),
     }
 
     topic = (
@@ -217,43 +703,128 @@ def publish_ack(
 
     client.publish(
         topic,
-        json.dumps(ack),
+        json.dumps(
+            ack
+        ),
         qos=1,
+        retain=False,
     )
 
-    print(f"📤 ACK → {topic}")
-    print(json.dumps(ack, indent=2))
+    print(
+        f"📤 ACK → {topic}"
+    )
+
+    print(
+        json.dumps(
+            ack,
+            indent=2,
+        )
+    )
 
 
 # ============================================================
 # COMMAND HANDLER
 # ============================================================
 
-def handle_command(client, payload):
-    start = time.perf_counter()
+def handle_command(
+    client,
+    payload,
+):
+
+    started = (
+        time.perf_counter()
+    )
+
+    # --------------------------------------------------------
+    # Parse JSON
+    # --------------------------------------------------------
 
     try:
-        command = json.loads(payload)
+        command = json.loads(
+            payload
+        )
+
     except json.JSONDecodeError:
-        print("❌ Invalid JSON command")
+        print(
+            "❌ Invalid command JSON"
+        )
         return
 
-    appliance_id = command.get("appliance_id")
-    command_id = command.get("command_id")
-    level = command.get("level")
+    command_id = command.get(
+        "command_id"
+    )
 
-    print("\n📥 COMMAND")
-    print(json.dumps(command, indent=2))
+    appliance_id = command.get(
+        "appliance_id"
+    )
 
-    valid, reason = validate_command(
-        appliance_id,
-        level,
+    level = command.get(
+        "level"
+    )
+
+    if not command_id:
+        command_id = (
+            "anonymous-"
+            + str(
+                time.time_ns()
+            )
+        )
+
+    print()
+    print(
+        "📥 ACTUATOR COMMAND"
+    )
+
+    print(
+        json.dumps(
+            command,
+            indent=2,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Deduplicate QoS 1 messages
+    # --------------------------------------------------------
+
+    if (
+        command_id
+        in seen_commands
+    ):
+        print(
+            "↩️ Duplicate command ignored: "
+            f"{command_id}"
+        )
+        return
+
+    remember_command(
+        command_id
+    )
+
+    # --------------------------------------------------------
+    # Safety validation
+    # --------------------------------------------------------
+
+    valid, reason = (
+        validate_command(
+            command
+        )
     )
 
     if not valid:
-        latency_ms = round(
-            (time.perf_counter() - start) * 1000,
-            2,
+
+        latency_ms = (
+            (
+                time.perf_counter()
+                - started
+            )
+            * 1000
+        )
+
+        old_level = (
+            current_levels.get(
+                appliance_id,
+                0,
+            )
         )
 
         publish_ack(
@@ -261,35 +832,45 @@ def handle_command(client, payload):
             command_id=command_id,
             appliance_id=appliance_id,
             accepted=False,
-            applied_level=current_levels.get(
-                appliance_id,
-                0,
-            ),
+            applied_level=old_level,
             rejected_reason=reason,
             gpio_state=(
                 1
-                if current_levels.get(
-                    appliance_id,
-                    0,
-                ) != 0
+                if old_level != 0
                 else 0
             ),
             latency_ms=latency_ms,
         )
 
-        print(f"🛡️ COMMAND BLOCKED: {reason}")
+        print(
+            "🛡️ COMMAND BLOCKED: "
+            f"{reason}"
+        )
+
         return
 
-    # Apply simulated GPIO.
-    gpio_state = apply_gpio(
-        appliance_id,
-        level,
+    # --------------------------------------------------------
+    # Apply hardware
+    # --------------------------------------------------------
+
+    gpio_state = (
+        apply_gpio(
+            appliance_id,
+            level,
+        )
     )
 
-    latency_ms = round(
-        (time.perf_counter() - start) * 1000,
-        2,
+    latency_ms = (
+        (
+            time.perf_counter()
+            - started
+        )
+        * 1000
     )
+
+    # --------------------------------------------------------
+    # ACK
+    # --------------------------------------------------------
 
     publish_ack(
         client=client,
@@ -304,37 +885,82 @@ def handle_command(client, payload):
 
 
 # ============================================================
-# OVERRIDE HANDLER
+# RESIDENT OVERRIDE
 # ============================================================
 
-def handle_override(client, payload):
+def handle_override(
+    client,
+    payload,
+):
+
     try:
-        override = json.loads(payload)
+        override = json.loads(
+            payload
+        )
+
     except json.JSONDecodeError:
-        print("❌ Invalid override JSON")
+        print(
+            "❌ Invalid override JSON"
+        )
         return
 
-    print("\n👤 RESIDENT OVERRIDE")
-    print(json.dumps(override, indent=2))
+    print()
+    print(
+        "👤 RESIDENT OVERRIDE"
+    )
 
-    appliance_id = override.get("appliance_id")
-    requested_level = override.get("requested_level")
+    print(
+        json.dumps(
+            override,
+            indent=2,
+        )
+    )
 
     command = {
-        "schema_version": "sharp_cmd_v2",
-        "command_id": override.get(
-            "override_id",
-            f"override-{int(time.time())}",
-        ),
-        "appliance_id": appliance_id,
-        "level": requested_level,
-        "issued_at": timestamp_ist(),
-        "expires_at": None,
+        "schema_version":
+            "sharp_cmd_v2",
+
+        "command_id":
+            override.get(
+                "override_id",
+                (
+                    "override-"
+                    + str(
+                        time.time_ns()
+                    )
+                ),
+            ),
+
+        "appliance_id":
+            override.get(
+                "appliance_id"
+            ),
+
+        "level":
+            override.get(
+                "requested_level"
+            ),
+
+        "issued_at":
+            override.get(
+                "issued_at",
+                timestamp_ist(),
+            ),
+
+        "expires_at":
+            override.get(
+                "expires_at"
+            ),
+
+        "source":
+            "resident_override",
     }
 
     handle_command(
         client,
-        json.dumps(command),
+        json.dumps(
+            command
+        ),
     )
 
 
@@ -349,26 +975,26 @@ def on_connect(
     reason_code,
     properties,
 ):
-    print(f"🔌 MQTT CONNECT: {reason_code}")
+
+    print(
+        "🔌 MQTT CONNECT: "
+        f"{reason_code}"
+    )
 
     if reason_code != 0:
-        print("❌ MQTT connection failed")
+        print(
+            "❌ MQTT connection failed"
+        )
         return
 
-    print("✅ Connected to HiveMQ")
-
-    # --------------------------------------------------------
-    # Pi SUBSCRIBES to commands
-    # --------------------------------------------------------
+    print(
+        "✅ Connected to HiveMQ"
+    )
 
     client.subscribe(
         ACTUATOR_CMD_SUB,
         qos=1,
     )
-
-    # --------------------------------------------------------
-    # Pi SUBSCRIBES to resident overrides
-    # --------------------------------------------------------
 
     client.subscribe(
         OVERRIDE_SUB,
@@ -376,30 +1002,71 @@ def on_connect(
     )
 
     print(
-        f"📡 Subscribed to "
+        "📡 Subscribed → "
         f"{ACTUATOR_CMD_SUB}"
     )
 
     print(
-        f"📡 Subscribed to "
+        "📡 Subscribed → "
         f"{OVERRIDE_SUB}"
     )
 
+    client.publish(
+        HEALTH_TOPIC,
+        json.dumps({
+            "source":
+                "sharp_pi_agent",
 
-def on_message(client, userdata, msg):
-    print(f"\n📨 MQTT MESSAGE: {msg.topic}")
+            "status":
+                "online",
 
-    payload = msg.payload.decode()
+            "gpio_enabled":
+                GPIO_ENABLED,
 
-    if "/override/" in msg.topic:
+            "timestamp_ist":
+                timestamp_ist(),
+        }),
+        qos=0,
+        retain=True,
+    )
+
+
+def on_message(
+    client,
+    userdata,
+    msg,
+):
+
+    print()
+    print(
+        f"📨 MQTT: "
+        f"{msg.topic}"
+    )
+
+    payload = (
+        msg.payload.decode(
+            "utf-8"
+        )
+    )
+
+    if (
+        "/override/"
+        in msg.topic
+    ):
         handle_override(
             client,
             payload,
         )
 
-    elif (
-        "/actuator/" in msg.topic
-        and msg.topic.endswith("/cmd")
+        return
+
+    if (
+        "/actuator/"
+        in msg.topic
+        and
+        msg.topic.endswith(
+            "/cmd"
+        )
     ):
         handle_command(
             client,
@@ -413,19 +1080,50 @@ def on_message(client, userdata, msg):
 
 def main():
 
-    if not all([
-        MQTT_HOST,
-        MQTT_USER,
-        MQTT_PASS,
-    ]):
-        raise RuntimeError(
-            "Missing MQTT_HOST, MQTT_USER, or MQTT_PASS "
-            "in root .env"
+    missing = []
+
+    if not MQTT_HOST:
+        missing.append(
+            "MQTT_HOST"
         )
 
+    if not MQTT_USER:
+        missing.append(
+            "MQTT_USER"
+        )
+
+    if not MQTT_PASS:
+        missing.append(
+            "MQTT_PASS"
+        )
+
+    if missing:
+        raise RuntimeError(
+            "Missing environment "
+            "variables: "
+            + ", ".join(
+                missing
+            )
+        )
+
+    # --------------------------------------------------------
+    # Hardware initialization
+    # --------------------------------------------------------
+
+    setup_gpio()
+
+    # --------------------------------------------------------
+    # MQTT
+    # --------------------------------------------------------
+
     client = mqtt.Client(
-        callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-        client_id="sharp-pi-agent",
+        callback_api_version=
+            mqtt.CallbackAPIVersion.VERSION2,
+
+        client_id=(
+            "sharp-pi-agent-"
+            + HOUSE_ID
+        ),
     )
 
     client.username_pw_set(
@@ -434,24 +1132,128 @@ def main():
     )
 
     client.tls_set(
-        cert_reqs=ssl.CERT_REQUIRED,
+        cert_reqs=
+            ssl.CERT_REQUIRED,
     )
 
-    client.on_connect = on_connect
-    client.on_message = on_message
-
-    print("🚀 Starting SHARP Pi Agent")
-    print(f"Host: {MQTT_HOST}")
-    print(f"Port: {MQTT_PORT}")
-    print("⚠️ GPIO MODE: SIMULATED")
-
-    client.connect(
-        MQTT_HOST,
-        MQTT_PORT,
-        keepalive=60,
+    client.reconnect_delay_set(
+        min_delay=1,
+        max_delay=30,
     )
 
-    client.loop_forever()
+    client.will_set(
+        HEALTH_TOPIC,
+        payload=json.dumps({
+            "source":
+                "sharp_pi_agent",
+
+            "status":
+                "offline",
+        }),
+        qos=0,
+        retain=True,
+    )
+
+    client.on_connect = (
+        on_connect
+    )
+
+    client.on_message = (
+        on_message
+    )
+
+    print()
+    print(
+        "=" * 68
+    )
+    print(
+        "SHARP RASPBERRY PI "
+        "ACTUATOR AGENT"
+    )
+    print(
+        "=" * 68
+    )
+
+    print(
+        f"Broker : "
+        f"{MQTT_HOST}:"
+        f"{MQTT_PORT}"
+    )
+
+    print(
+        f"House  : "
+        f"{HOUSE_ID}"
+    )
+
+    print(
+        "GPIO   : "
+        + (
+            "REAL"
+            if GPIO_ENABLED
+            else "SIMULATED"
+        )
+    )
+
+    print(
+        "Relay  : "
+        + (
+            "ACTIVE LOW"
+            if RELAY_ACTIVE_LOW
+            else "ACTIVE HIGH"
+        )
+    )
+
+    print(
+        "=" * 68
+    )
+
+    try:
+
+        client.connect(
+            MQTT_HOST,
+            MQTT_PORT,
+            keepalive=60,
+        )
+
+        print(
+            "Waiting for RL "
+            "commands..."
+        )
+
+        client.loop_forever()
+
+    except KeyboardInterrupt:
+
+        print()
+        print(
+            "Stopping Pi agent..."
+        )
+
+    finally:
+
+        try:
+            client.publish(
+                HEALTH_TOPIC,
+                json.dumps({
+                    "source":
+                        "sharp_pi_agent",
+
+                    "status":
+                        "offline",
+
+                    "timestamp_ist":
+                        timestamp_ist(),
+                }),
+                qos=0,
+                retain=True,
+            )
+
+            client.disconnect()
+
+        except Exception:
+            pass
+
+        cleanup_gpio()
 
 
 if __name__ == "__main__":

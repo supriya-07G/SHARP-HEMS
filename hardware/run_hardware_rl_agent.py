@@ -48,18 +48,21 @@ N_LEVELS = 3
 # HARDWARE GPIO PIN MAPPING (BCM Numbers for Raspberry Pi)
 # ============================================================
 
-GPIO_PINS = {
-    "ceiling_fan_01": 17,     # Critical / Necessity
-    "table_fan_01": 27,       # Critical / Necessity
-    "led_bulb_01": 22,        # Critical / Necessity
-    "led_tube_01": 19,        # Critical / Necessity
-    "refrigerator_01": 23,    # Critical / Necessity
-    "air_conditioner_01": 16, # Flexible / Sheddable
-    "washing_machine_01": 20, # Flexible / Sheddable
-    "ev_charger_01": 6,       # Flexible / Sheddable
-    "television_01": 21,      # Flexible / Sheddable
-    "mixer_grinder_01": 26,   # Flexible / Sheddable
+DEVICES = {
+    "air_conditioner_01": {
+        "gpio": None,
+        "level_gpios": {0: 4, 1: 5, 2: 6},
+    },
+    "refrigerator_01": {"gpio": 13},
+    "washing_machine_01": {"gpio": 17},
+    "mixer_grinder_01": {"gpio": 18},
+    "television_01": {"gpio": 19},
+    "ev_charger_01": {"gpio": 26},
 }
+
+BUZZER_GPIO = 12
+OLED_SDA_GPIO = 2
+OLED_SCL_GPIO = 3
 
 # Try importing RPi.GPIO for real hardware; fallback to Mock for non-Pi development
 try:
@@ -73,20 +76,36 @@ except (ImportError, RuntimeError):
 
 
 def set_hardware_pin(appliance_id: str, state: int):
-    """Sets GPIO pin HIGH (1) or LOW (0) for the specified appliance relay."""
-    pin = GPIO_PINS.get(appliance_id)
-    if pin is None:
+    """Sets GPIO pin for the specified appliance relay or multi-LED AC level."""
+    dev = DEVICES.get(appliance_id)
+    if not dev:
         return
-    
-    if HARDWARE_AVAILABLE:
-        try:
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.HIGH if state == 1 else GPIO.LOW)
-            print(f"  ⚡ [GPIO BCM {pin}] Set to {'HIGH (ON)' if state == 1 else 'LOW (OFF)'} for {appliance_id}")
-        except Exception as e:
-            print(f"  ❌ GPIO Error on pin {pin}: {e}")
+
+    level_pins = dev.get("level_gpios")
+    if level_pins:
+        if HARDWARE_AVAILABLE:
+            try:
+                for lvl, pin in level_pins.items():
+                    GPIO.setup(pin, GPIO.OUT)
+                    GPIO.output(pin, GPIO.HIGH if lvl == state else GPIO.LOW)
+                print(f"  ⚡ [GPIO BCM {level_pins}] AC set to Level {state} (Pin {level_pins.get(state)} HIGH)")
+            except Exception as e:
+                print(f"  ❌ GPIO Error on AC pins: {e}")
+        else:
+            print(f"  [SIMULATED RELAY BCM {level_pins}] AC level -> {state} (Pin {level_pins.get(state)} HIGH)")
     else:
-        print(f"  [SIMULATED RELAY BCM {pin}] {appliance_id} -> {'ON' if state == 1 else 'OFF'}")
+        pin = dev.get("gpio")
+        if pin is None:
+            return
+        if HARDWARE_AVAILABLE:
+            try:
+                GPIO.setup(pin, GPIO.OUT)
+                GPIO.output(pin, GPIO.HIGH if state != 0 else GPIO.LOW)
+                print(f"  ⚡ [GPIO BCM {pin}] Set to {'HIGH (ON)' if state != 0 else 'LOW (OFF)'} for {appliance_id}")
+            except Exception as e:
+                print(f"  ❌ GPIO Error on pin {pin}: {e}")
+        else:
+            print(f"  [SIMULATED RELAY BCM {pin}] {appliance_id} -> {'ON' if state != 0 else 'OFF'}")
 
 
 # ============================================================

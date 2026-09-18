@@ -2,10 +2,14 @@ import os
 import json
 import time
 import uuid
+
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 
 import numpy as np
 import paho.mqtt.client as mqtt
+
+from dotenv import load_dotenv
 
 
 # ============================================================
@@ -14,15 +18,62 @@ import paho.mqtt.client as mqtt
 
 ROOT = Path(__file__).resolve().parent.parent
 
-CHECKPOINT_PATH = ROOT / "models" / "sharp_bdq_v2" / "checkpoint.npz"
+load_dotenv(
+    ROOT / ".env"
+)
 
-MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
-MQTT_USER = os.getenv("MQTT_USER")
-MQTT_PASS = os.getenv("MQTT_PASS")
+CHECKPOINT_PATH = (
+    ROOT
+    / "models"
+    / "sharp_bdq_v2"
+    / "checkpoint.npz"
+)
 
-STATE_TOPIC = "home/demo/state"
-INTENT_TOPIC = "home/demo/intent"
+MQTT_HOST = os.getenv(
+    "MQTT_HOST"
+)
+
+MQTT_PORT = int(
+    os.getenv(
+        "MQTT_PORT",
+        "8883",
+    )
+)
+
+MQTT_USER = os.getenv(
+    "MQTT_USER"
+)
+
+MQTT_PASS = os.getenv(
+    "MQTT_PASS"
+)
+
+HOUSE_ID = os.getenv(
+    "HOUSE_ID",
+    "demo",
+)
+
+
+# ============================================================
+# MQTT TOPICS
+# ============================================================
+
+STATE_TOPIC = (
+    f"home/{HOUSE_ID}/state"
+)
+
+INTENT_TOPIC = (
+    f"home/{HOUSE_ID}/intent"
+)
+
+ACTUATOR_PREFIX = (
+    f"home/{HOUSE_ID}/actuator"
+)
+
+
+# ============================================================
+# RL CONSTANTS
+# ============================================================
 
 N_BRANCHES = 28
 N_LEVELS = 3
@@ -35,15 +86,25 @@ LEVEL_NAMES = {
 
 
 # ============================================================
-# LOAD EXISTING SHARP BDQ CHECKPOINT
+# SHARP BDQ MODEL
 # ============================================================
 
 class SharpPolicy:
 
-    def __init__(self, weights_path):
-        print(f"Loading checkpoint: {weights_path}")
+    def __init__(
+        self,
+        weights_path,
+    ):
 
-        w = np.load(weights_path, allow_pickle=False)
+        print(
+            f"Loading checkpoint: "
+            f"{weights_path}"
+        )
+
+        w = np.load(
+            weights_path,
+            allow_pickle=False,
+        )
 
         required = [
             "w",
@@ -56,11 +117,16 @@ class SharpPolicy:
             "sd",
         ]
 
-        missing = [key for key in required if key not in w.files]
+        missing = [
+            key
+            for key in required
+            if key not in w.files
+        ]
 
         if missing:
             raise ValueError(
-                f"Checkpoint is missing arrays: {missing}"
+                "Checkpoint missing arrays: "
+                f"{missing}"
             )
 
         self.w = w["w"]
@@ -75,76 +141,143 @@ class SharpPolicy:
         self.mean = w["mean"]
         self.sd = w["sd"]
 
+        # ----------------------------------------------------
+        # Model integrity checks
+        # ----------------------------------------------------
+
         if self.w.shape[0] != 305:
             raise ValueError(
-                f"Expected 305 input features, got {self.w.shape[0]}"
+                "Expected 305 model inputs, "
+                f"got {self.w.shape[0]}"
             )
 
         if self.a.shape[1] != 84:
             raise ValueError(
-                f"Expected 84 outputs (28 x 3), got {self.a.shape[1]}"
+                "Expected 84 BDQ outputs "
+                "(28 branches x 3 levels), "
+                f"got {self.a.shape[1]}"
             )
 
-        if len(self.mean) != 305 or len(self.sd) != 305:
+        if len(self.mean) != 305:
             raise ValueError(
-                "Normalization vectors must contain 305 values"
+                "Normalization mean must "
+                "contain 305 values"
             )
 
-        if not np.all(np.isfinite(self.mean)):
-            raise ValueError("Normalization mean contains invalid values")
+        if len(self.sd) != 305:
+            raise ValueError(
+                "Normalization std must "
+                "contain 305 values"
+            )
 
-        if not np.all(np.isfinite(self.sd)):
-            raise ValueError("Normalization std contains invalid values")
+        if not np.all(
+            np.isfinite(self.mean)
+        ):
+            raise ValueError(
+                "Model mean contains "
+                "non-finite values"
+            )
 
-        if np.any(self.sd <= 0):
-            raise ValueError("Normalization std contains zero/negative values")
+        if not np.all(
+            np.isfinite(self.sd)
+        ):
+            raise ValueError(
+                "Model std contains "
+                "non-finite values"
+            )
+
+        if np.any(
+            self.sd <= 0
+        ):
+            raise ValueError(
+                "Model std contains "
+                "zero/negative values"
+            )
 
         print(
-            f"Loaded BDQ: "
-            f"{self.w.shape[0]} features -> "
-            f"{N_BRANCHES} branches x {N_LEVELS} levels"
+            "✅ BDQ loaded: "
+            "305 features -> "
+            "28 branches x 3 actions"
         )
 
-    def q_values(self, state):
-        """
-        state:
-            305 raw feature values.
-        """
+    # ========================================================
+    # Q VALUES
+    # ========================================================
 
-        state = np.asarray(state, dtype=float)
+    def q_values(
+        self,
+        state,
+    ):
+
+        state = np.asarray(
+            state,
+            dtype=float,
+        )
 
         if state.shape != (305,):
             raise ValueError(
-                f"Expected state shape (305,), got {state.shape}"
+                "Expected state shape "
+                "(305,), got "
+                f"{state.shape}"
             )
 
-        # Same normalization used by the supplied policy.
-        x = (state - self.mean) / self.sd
+        # ----------------------------------------------------
+        # Exact training normalization
+        # ----------------------------------------------------
 
-        # BDQ forward pass.
+        x = (
+            state
+            - self.mean
+        ) / self.sd
+
+        # ----------------------------------------------------
+        # Hidden layer
+        # ----------------------------------------------------
+
         h = np.maximum(
             0,
-            x @ self.w + self.b
+            x @ self.w
+            + self.b,
         )
+
+        # ----------------------------------------------------
+        # Advantage branches
+        # ----------------------------------------------------
 
         advantage = (
-            h @ self.a + self.ab
+            h @ self.a
+            + self.ab
         ).reshape(
             N_BRANCHES,
-            N_LEVELS
+            N_LEVELS,
         )
 
+        # ----------------------------------------------------
+        # Shared value head
+        # ----------------------------------------------------
+
         value = (
-            h @ self.v + self.vb
-        ).reshape(1, 1)
+            h @ self.v
+            + self.vb
+        ).reshape(
+            1,
+            1,
+        )
 
         q = (
             value
             + advantage
-            - advantage.mean(axis=1, keepdims=True)
+            - advantage.mean(
+                axis=1,
+                keepdims=True,
+            )
         )
 
         return q
+
+    # ========================================================
+    # DECISION + SAFETY MASK
+    # ========================================================
 
     def decide(
         self,
@@ -154,314 +287,647 @@ class SharpPolicy:
         supports_reduced,
         occupant_wants,
     ):
-        """
-        Select one action for each of the 28 branches.
-
-        0 = SHED
-        1 = ON
-        2 = REDUCED
-        """
 
         device_present = np.asarray(
             device_present,
-            dtype=bool
+            dtype=bool,
         )
 
         is_necessity = np.asarray(
             is_necessity,
-            dtype=bool
+            dtype=bool,
         )
 
         supports_reduced = np.asarray(
             supports_reduced,
-            dtype=bool
+            dtype=bool,
         )
 
         occupant_wants = np.asarray(
             occupant_wants,
-            dtype=bool
+            dtype=bool,
         )
 
-        for name, value in [
-            ("device_present", device_present),
-            ("is_necessity", is_necessity),
-            ("supports_reduced", supports_reduced),
-            ("occupant_wants", occupant_wants),
-        ]:
-            if value.shape != (28,):
+        arrays = [
+            (
+                "device_present",
+                device_present,
+            ),
+            (
+                "is_necessity",
+                is_necessity,
+            ),
+            (
+                "supports_reduced",
+                supports_reduced,
+            ),
+            (
+                "occupant_wants",
+                occupant_wants,
+            ),
+        ]
+
+        for name, value in arrays:
+            if value.shape != (
+                N_BRANCHES,
+            ):
                 raise ValueError(
-                    f"{name} must contain 28 values, got {value.shape}"
+                    f"{name} must contain "
+                    "28 values, got "
+                    f"{value.shape}"
                 )
 
         # ----------------------------------------------------
-        # Legality mask
+        # Legal action mask
         # ----------------------------------------------------
 
         legal = np.ones(
-            (N_BRANCHES, N_LEVELS),
-            dtype=bool
+            (
+                N_BRANCHES,
+                N_LEVELS,
+            ),
+            dtype=bool,
         )
 
-        # Reduced is only legal if the appliance supports it
-        # and is not a necessity.
+        # REDUCED only where physically supported.
+        #
+        # Current prototype has no reduced-level relay control.
         legal[:, 2] = (
             supports_reduced
             & ~is_necessity
         )
 
-        # A necessity appliance currently wanted by the
-        # occupant cannot be shed.
+        # ----------------------------------------------------
+        # Critical safety rule
+        #
+        # An essential appliance being requested by the
+        # occupant may not be automatically shed.
+        # ----------------------------------------------------
+
         legal[:, 0] &= ~(
             is_necessity
             & occupant_wants
         )
 
-        q = self.q_values(state)
+        q = self.q_values(
+            state
+        )
 
         allowed = (
             device_present[:, None]
             & legal
         )
 
-        if not allowed.any(axis=1).all():
-            raise ValueError(
-                "At least one present device has no legal action"
-            )
+        # ----------------------------------------------------
+        # IMPORTANT FIX:
+        #
+        # Only PRESENT devices must have a legal action.
+        # The old code accidentally treated absent model
+        # branches as errors.
+        # ----------------------------------------------------
 
-        action = np.argmax(
-            np.where(
-                allowed,
-                q,
-                -np.inf
-            ),
-            axis=1
+        no_legal_action = (
+            device_present
+            & ~allowed.any(
+                axis=1
+            )
         )
 
-        return action, q
+        if np.any(
+            no_legal_action
+        ):
+            bad_slots = np.where(
+                no_legal_action
+            )[0].tolist()
+
+            raise ValueError(
+                "Present devices have no "
+                "legal action: "
+                f"{bad_slots}"
+            )
+
+        # Default absent branches to SHED.
+        actions = np.zeros(
+            N_BRANCHES,
+            dtype=int,
+        )
+
+        # Only perform argmax for actual devices.
+        if np.any(
+            device_present
+        ):
+            actions[
+                device_present
+            ] = np.argmax(
+                np.where(
+                    allowed[
+                        device_present
+                    ],
+                    q[
+                        device_present
+                    ],
+                    -np.inf,
+                ),
+                axis=1,
+            )
+
+        return actions, q
 
 
 # ============================================================
-# MQTT
+# GLOBAL POLICY
 # ============================================================
 
 policy = None
 
 
-def on_connect(client, userdata, flags, reason_code, properties=None):
+# ============================================================
+# MQTT CONNECT
+# ============================================================
+
+def on_connect(
+    client,
+    userdata,
+    flags,
+    reason_code,
+    properties,
+):
 
     print(
-        f"Connected to HiveMQ. "
-        f"reason_code={reason_code}"
+        f"MQTT connection result: "
+        f"{reason_code}"
     )
 
     if reason_code != 0:
-        print("MQTT connection failed.")
+        print(
+            "❌ HiveMQ connection failed"
+        )
         return
+
+    print(
+        "✅ Connected to HiveMQ"
+    )
 
     client.subscribe(
         STATE_TOPIC,
-        qos=0
+        qos=0,
     )
 
     print(
-        f"Subscribed to: {STATE_TOPIC}"
+        f"📡 Subscribed → "
+        f"{STATE_TOPIC}"
     )
 
 
-def on_message(client, userdata, msg):
+# ============================================================
+# PUBLISH PHYSICAL COMMAND
+# ============================================================
+
+def publish_actuator_command(
+    client,
+    decision_id,
+    appliance,
+    level,
+    payload,
+):
+
+    appliance_id = (
+        appliance[
+            "appliance_id"
+        ]
+    )
+
+    issued = datetime.now(
+        timezone.utc
+    )
+
+    expires = (
+        issued
+        + timedelta(
+            seconds=60
+        )
+    )
+
+    command_id = (
+        f"{decision_id}:"
+        f"{appliance_id}"
+    )
+
+    command = {
+        "schema_version":
+            "sharp_cmd_v2",
+
+        "command_id":
+            command_id,
+
+        "decision_id":
+            decision_id,
+
+        "appliance_id":
+            appliance_id,
+
+        "level":
+            int(level),
+
+        # Give the Pi the safety context
+        # required to independently reject
+        # an illegal automatic shed.
+        "occupant_wants":
+            bool(
+                appliance.get(
+                    "occupant_wants",
+                    False,
+                )
+            ),
+
+        "issued_at":
+            issued.isoformat(),
+
+        "expires_at":
+            expires.isoformat(),
+
+        "source":
+            "sharp_rl_bdq_v2",
+
+        "state_step_id":
+            payload.get(
+                "step_id"
+            ),
+
+        "state_timestamp_ist":
+            payload.get(
+                "timestamp_ist"
+            ),
+    }
+
+    topic = (
+        f"{ACTUATOR_PREFIX}/"
+        f"{appliance_id}/cmd"
+    )
+
+    client.publish(
+        topic,
+        json.dumps(
+            command
+        ),
+        qos=1,
+        retain=False,
+    )
+
+    print(
+        "📤 COMMAND → "
+        f"{appliance_id}: "
+        f"{LEVEL_NAMES[int(level)]}"
+    )
+
+
+# ============================================================
+# MQTT STATE HANDLER
+# ============================================================
+
+def on_message(
+    client,
+    userdata,
+    msg,
+):
 
     global policy
 
     try:
 
         print()
-        print("=" * 60)
-        print(f"Received MQTT state: {msg.topic}")
+        print(
+            "=" * 68
+        )
+
+        print(
+            f"📥 STATE → "
+            f"{msg.topic}"
+        )
 
         payload = json.loads(
-            msg.payload.decode("utf-8")
+            msg.payload.decode(
+                "utf-8"
+            )
         )
 
         # ----------------------------------------------------
-        # Extract 305-feature state vector
+        # STATE VECTOR
         # ----------------------------------------------------
 
-        if "state_vector" not in payload:
+        if (
+            "state_vector"
+            not in payload
+        ):
             print(
-                "State message does not contain "
-                "'state_vector'."
-            )
-            print(
-                "Available fields:",
-                list(payload.keys())
+                "❌ state_vector missing "
+                "from MQTT HomeState"
             )
             return
 
-        state = payload["state_vector"]
+        state = np.asarray(
+            payload[
+                "state_vector"
+            ],
+            dtype=float,
+        )
 
-        # ----------------------------------------------------
-        # Appliance legality information
-        # ----------------------------------------------------
+        if state.shape != (
+            305,
+        ):
+            print(
+                "❌ Invalid state vector. "
+                f"Expected 305, got "
+                f"{state.shape}"
+            )
+            return
 
         appliances = payload.get(
             "appliances",
-            []
+            [],
         )
+
+        # ----------------------------------------------------
+        # MODEL BRANCH MASKS
+        # ----------------------------------------------------
 
         device_present = np.zeros(
             N_BRANCHES,
-            dtype=bool
+            dtype=bool,
         )
 
         is_necessity = np.zeros(
             N_BRANCHES,
-            dtype=bool
+            dtype=bool,
         )
 
         supports_reduced = np.zeros(
             N_BRANCHES,
-            dtype=bool
+            dtype=bool,
         )
 
         occupant_wants = np.zeros(
             N_BRANCHES,
-            dtype=bool
+            dtype=bool,
         )
 
+        # Physical appliance mapped by RL slot.
+        slot_to_appliance = {}
+
         # ----------------------------------------------------
-        # Current frozen registry ordering:
+        # BUILD SLOT MAP
         #
-        # device slots must be ordered consistently with
-        # the trained 305-feature representation.
-        #
-        # For now we use the slot field if supplied.
+        # Do NOT use appliance list position as the trained
+        # model branch. The payload now explicitly supplies
+        # the correct slot.
         # ----------------------------------------------------
 
-        for index, appliance in enumerate(appliances):
+        for appliance in appliances:
 
             slot = appliance.get(
-                "slot",
-                index
+                "slot"
             )
 
-            if slot >= N_BRANCHES:
+            # Rig appliance absent from the dataset
+            # episode. It cannot safely be mapped to
+            # an RL branch.
+            if slot is None:
                 continue
 
-            device_present[slot] = True
+            try:
+                slot = int(
+                    slot
+                )
 
-            is_necessity[slot] = bool(
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if (
+                slot < 0
+                or
+                slot >= N_BRANCHES
+            ):
+                continue
+
+            slot_to_appliance[
+                slot
+            ] = appliance
+
+            device_present[
+                slot
+            ] = True
+
+            is_necessity[
+                slot
+            ] = bool(
                 appliance.get(
                     "is_necessity",
-                    False
+                    False,
                 )
             )
 
-            supports_reduced[slot] = bool(
+            supports_reduced[
+                slot
+            ] = bool(
                 appliance.get(
                     "supports_reduced",
-                    False
+                    False,
                 )
             )
 
-            occupant_wants[slot] = bool(
+            occupant_wants[
+                slot
+            ] = bool(
                 appliance.get(
                     "occupant_wants",
-                    False
+                    False,
                 )
             )
 
+        if not slot_to_appliance:
+            print(
+                "❌ No appliances have "
+                "valid RL slots"
+            )
+            return
+
         # ----------------------------------------------------
-        # Run RL inference
+        # RL INFERENCE
         # ----------------------------------------------------
 
-        started = time.perf_counter()
+        started = (
+            time.perf_counter()
+        )
 
-        actions, q = policy.decide(
-            state,
-            device_present,
-            is_necessity,
-            supports_reduced,
-            occupant_wants,
+        actions, q_values = (
+            policy.decide(
+                state,
+                device_present,
+                is_necessity,
+                supports_reduced,
+                occupant_wants,
+            )
         )
 
         latency_ms = (
-            time.perf_counter() - started
-        ) * 1000
+            (
+                time.perf_counter()
+                - started
+            )
+            * 1000
+        )
 
         # ----------------------------------------------------
-        # Build proposed action map
+        # BUILD ACTION MAP
         # ----------------------------------------------------
 
         proposed = {}
 
-        for slot in range(N_BRANCHES):
+        for slot in sorted(
+            slot_to_appliance
+        ):
 
-            if not device_present[slot]:
-                continue
-
-            appliance_id = appliances[slot].get(
-                "appliance_id",
-                f"slot_{slot}"
+            appliance = (
+                slot_to_appliance[
+                    slot
+                ]
             )
 
-            proposed[appliance_id] = int(
-                actions[slot]
+            appliance_id = (
+                appliance[
+                    "appliance_id"
+                ]
             )
+
+            level = int(
+                actions[
+                    slot
+                ]
+            )
+
+            proposed[
+                appliance_id
+            ] = level
 
             print(
-                f"{appliance_id}: "
-                f"{LEVEL_NAMES[int(actions[slot])]}"
+                f"🤖 slot {slot:02d} | "
+                f"{appliance_id:<24} "
+                f"→ {LEVEL_NAMES[level]}"
             )
 
         # ----------------------------------------------------
-        # Publish intent
+        # DECISION ID
         # ----------------------------------------------------
 
-        command_id = str(
+        decision_id = str(
             uuid.uuid4()
         )
 
+        # ----------------------------------------------------
+        # PUBLISH DASHBOARD INTENT
+        # ----------------------------------------------------
+
         intent = {
-            "schema_version": "sharp_intent_v2",
-            "command_id": command_id,
-            "timestamp_ist": payload.get(
-                "timestamp_ist"
-            ),
-            "proposed": proposed,
-            "executed": proposed.copy(),
-            "shield_reasons": {},
-            "policy_source": "bdq_v2",
-            "decision_latency_ms": round(
-                latency_ms,
-                3
-            ),
+            "schema_version":
+                "sharp_intent_v2",
+
+            "command_id":
+                decision_id,
+
+            "timestamp_ist":
+                payload.get(
+                    "timestamp_ist"
+                ),
+
+            "proposed":
+                proposed,
+
+            # This is shield-approved intent.
+            # Hardware confirmation comes separately
+            # through actuator ACK messages.
+            "executed":
+                proposed.copy(),
+
+            "shield_reasons":
+                {},
+
+            "policy_source":
+                "bdq_v2",
+
+            "decision_latency_ms":
+                round(
+                    latency_ms,
+                    3,
+                ),
         }
 
         client.publish(
             INTENT_TOPIC,
-            json.dumps(intent),
+            json.dumps(
+                intent
+            ),
             qos=0,
             retain=False,
         )
 
         print(
-            f"Published intent → {INTENT_TOPIC}"
+            f"📤 Intent → "
+            f"{INTENT_TOPIC}"
         )
 
+        # ----------------------------------------------------
+        # PUBLISH ACTUATOR COMMANDS
+        # ----------------------------------------------------
+
+        for slot in sorted(
+            slot_to_appliance
+        ):
+
+            appliance = (
+                slot_to_appliance[
+                    slot
+                ]
+            )
+
+            level = int(
+                actions[
+                    slot
+                ]
+            )
+
+            publish_actuator_command(
+                client=client,
+                decision_id=decision_id,
+                appliance=appliance,
+                level=level,
+                payload=payload,
+            )
+
         print(
-            f"RL inference latency: "
+            "⚡ RL inference: "
             f"{latency_ms:.3f} ms"
         )
 
-        print("=" * 60)
+        print(
+            "=" * 68
+        )
 
     except Exception as error:
 
         print()
         print(
-            f"ERROR processing MQTT state: {error}"
+            "❌ ERROR processing "
+            "MQTT state:"
         )
-        print("=" * 60)
+        print(
+            repr(error)
+        )
+        print(
+            "=" * 68
+        )
 
 
 # ============================================================
@@ -472,28 +938,50 @@ def main():
 
     global policy
 
-    if not CHECKPOINT_PATH.exists():
+    # --------------------------------------------------------
+    # Validate model
+    # --------------------------------------------------------
+
+    if not (
+        CHECKPOINT_PATH.exists()
+    ):
         raise FileNotFoundError(
-            f"Checkpoint not found: {CHECKPOINT_PATH}"
-        )
-
-    if not MQTT_HOST:
-        raise ValueError(
-            "MQTT_HOST environment variable is not set"
-        )
-
-    if not MQTT_USER:
-        raise ValueError(
-            "MQTT_USER environment variable is not set"
-        )
-
-    if not MQTT_PASS:
-        raise ValueError(
-            "MQTT_PASS environment variable is not set"
+            "Checkpoint not found: "
+            f"{CHECKPOINT_PATH}"
         )
 
     # --------------------------------------------------------
-    # Load policy
+    # Validate MQTT configuration
+    # --------------------------------------------------------
+
+    missing = []
+
+    if not MQTT_HOST:
+        missing.append(
+            "MQTT_HOST"
+        )
+
+    if not MQTT_USER:
+        missing.append(
+            "MQTT_USER"
+        )
+
+    if not MQTT_PASS:
+        missing.append(
+            "MQTT_PASS"
+        )
+
+    if missing:
+        raise RuntimeError(
+            "Missing environment "
+            "variables: "
+            + ", ".join(
+                missing
+            )
+        )
+
+    # --------------------------------------------------------
+    # Load RL policy
     # --------------------------------------------------------
 
     policy = SharpPolicy(
@@ -505,29 +993,82 @@ def main():
     # --------------------------------------------------------
 
     client = mqtt.Client(
-        mqtt.CallbackAPIVersion.VERSION2,
-        client_id=f"sharp-rl-{uuid.uuid4()}",
+        callback_api_version=
+            mqtt.CallbackAPIVersion.VERSION2,
+
+        client_id=(
+            "sharp-rl-"
+            + uuid.uuid4().hex[:8]
+        ),
     )
 
     client.username_pw_set(
         MQTT_USER,
-        MQTT_PASS
+        MQTT_PASS,
     )
 
-    # HiveMQ Cloud uses TLS on port 8883.
+    # HiveMQ Cloud TLS
     client.tls_set()
 
-    client.on_connect = on_connect
-    client.on_message = on_message
+    client.reconnect_delay_set(
+        min_delay=1,
+        max_delay=30,
+    )
+
+    client.on_connect = (
+        on_connect
+    )
+
+    client.on_message = (
+        on_message
+    )
 
     print()
-    print("SHARP RL MQTT Agent")
-    print("-" * 60)
-    print(f"Broker : {MQTT_HOST}:{MQTT_PORT}")
-    print(f"State  : {STATE_TOPIC}")
-    print(f"Intent : {INTENT_TOPIC}")
-    print(f"Model  : {CHECKPOINT_PATH}")
-    print("-" * 60)
+    print(
+        "=" * 68
+    )
+    print(
+        "SHARP RL MQTT CONTROLLER"
+    )
+    print(
+        "=" * 68
+    )
+
+    print(
+        f"Broker : "
+        f"{MQTT_HOST}:"
+        f"{MQTT_PORT}"
+    )
+
+    print(
+        f"House  : "
+        f"{HOUSE_ID}"
+    )
+
+    print(
+        f"State  : "
+        f"{STATE_TOPIC}"
+    )
+
+    print(
+        f"Intent : "
+        f"{INTENT_TOPIC}"
+    )
+
+    print(
+        "Cmd    : "
+        f"{ACTUATOR_PREFIX}/"
+        "<appliance>/cmd"
+    )
+
+    print(
+        f"Model  : "
+        f"{CHECKPOINT_PATH}"
+    )
+
+    print(
+        "=" * 68
+    )
 
     client.connect(
         MQTT_HOST,
@@ -535,7 +1076,10 @@ def main():
         keepalive=60,
     )
 
-    print("Waiting for MQTT state messages...")
+    print(
+        "Waiting for HomeState "
+        "messages..."
+    )
 
     client.loop_forever()
 
