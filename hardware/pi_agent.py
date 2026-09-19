@@ -157,6 +157,10 @@ INTENT_TOPIC = (
     f"home/{HOUSE_ID}/intent"
 )
 
+GRID_EVENT_TOPIC = (
+    f"home/{HOUSE_ID}/grid/event"
+)
+
 
 # ============================================================
 # FROZEN SHARP HARDWARE REGISTRY
@@ -266,6 +270,7 @@ manual_override_until = {}
 
 # Loaded once at startup when RL_ENABLED=true.
 rl_policy = None
+active_grid_event = None
 
 
 # ============================================================
@@ -1446,6 +1451,128 @@ def handle_override(
 
 
 # ============================================================
+# GRID EVENT HANDLER
+# ============================================================
+
+def handle_grid_event(
+    payload_text,
+):
+
+    global active_grid_event
+
+    try:
+        event = json.loads(
+            payload_text
+        )
+    except json.JSONDecodeError:
+        print(
+            "❌ Invalid grid event JSON"
+        )
+        return
+
+    action = event.get(
+        "action"
+    )
+
+    if action == "cancel":
+        active_grid_event = None
+        print(
+            "🟢 Grid event cancelled"
+        )
+        return
+
+    if action != "declare":
+        print(
+            "⏭️ Ignoring unknown grid event action"
+        )
+        return
+
+    try:
+        severity = float(
+            event.get(
+                "severity"
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        print(
+            "⏭️ Invalid grid severity"
+        )
+        return
+
+    if not 0.0 <= severity <= 1.0:
+        print(
+            "⏭️ Grid severity outside 0..1"
+        )
+        return
+
+    active_grid_event = event
+
+    print(
+        "🔴 Grid event active → "
+        f"severity {severity:.2f}"
+    )
+
+
+def effective_grid_severity():
+
+    global active_grid_event
+
+    event = active_grid_event
+
+    if not event:
+        return None
+
+    expires_at = event.get(
+        "expires_at"
+    )
+
+    if expires_at:
+        try:
+            expiry = datetime.fromisoformat(
+                str(
+                    expires_at
+                ).replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(
+                    tzinfo=timezone.utc
+                )
+
+            if datetime.now(
+                timezone.utc
+            ) >= expiry.astimezone(
+                timezone.utc
+            ):
+                active_grid_event = None
+                print(
+                    "🟢 Grid event expired"
+                )
+                return None
+
+        except ValueError:
+            pass
+
+    try:
+        return float(
+            event.get(
+                "severity"
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+
+# ============================================================
 # RL STATE HANDLER
 # ============================================================
 
@@ -1523,6 +1650,15 @@ def handle_rl_state(
             "contains NaN/Inf"
         )
         return
+
+    grid_severity = effective_grid_severity()
+
+    if grid_severity is not None:
+        # Only override the trained grid-severity feature. The remaining
+        # 304 model inputs still come from the validated state builder.
+        state = state.copy()
+        state[5] = grid_severity
+        payload["grid_peak_severity"] = grid_severity
 
     appliances = payload.get(
         "appliances",
@@ -1961,6 +2097,11 @@ def on_connect(
             qos=0,
         )
 
+    client.subscribe(
+        GRID_EVENT_TOPIC,
+        qos=1,
+    )
+
     print(
         "📡 Subscribed → "
         f"{ACTUATOR_CMD_SUB}"
@@ -1976,6 +2117,11 @@ def on_connect(
             "📡 Subscribed → "
             f"{STATE_TOPIC}"
         )
+
+    print(
+        "📡 Subscribed → "
+        f"{GRID_EVENT_TOPIC}"
+    )
 
     client.publish(
         HEALTH_TOPIC,
@@ -2014,6 +2160,12 @@ def on_message(
             "utf-8"
         )
     )
+
+    if msg.topic == GRID_EVENT_TOPIC:
+        handle_grid_event(
+            payload
+        )
+        return
 
     if (
         RL_ENABLED
