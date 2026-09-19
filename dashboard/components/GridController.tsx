@@ -43,7 +43,12 @@ export function GridController({
 
   return (
     <div className="space-y-6">
-      <GridQuickNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <GridQuickNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        isPeakActive={peakEvent.is_active}
+        severity={homeState.grid_peak_severity}
+      />
 
       {activeTab === 'dispatch' && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
