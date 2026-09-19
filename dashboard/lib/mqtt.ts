@@ -1,26 +1,18 @@
 /**
- * Browser MQTT client. Runs in the BROWSER, never on Vercel's server.
+ * Browser MQTT client for SHARP live runtime telemetry.
  *
- * Vercel functions are request-scoped: they wake, answer, freeze. A frozen
- * function drops a long-lived subscription, and you get intermittent missing
- * telemetry that is painful to diagnose. So the client lives here, in the page.
- *
- * MQTT over WebSockets Secure is used so the browser can connect to HiveMQ.
+ * The browser displays home/<house>/runtime, which is produced by the
+ * Raspberry Pi runtime bridge after merging model-input context with actual
+ * actuator ACK/readback state. The raw home/<house>/state topic remains the
+ * model/control input and is intentionally not rendered as hardware truth.
  */
 
 import mqtt, { MqttClient } from 'mqtt';
 import { Feed, HomeState, Intent, WeatherData } from './contracts';
 
 const HOUSE = process.env.NEXT_PUBLIC_HOUSE_ID ?? 'demo';
+const STALE_AFTER_SECONDS = 20;
 
-/** Past this point, received telemetry is considered stale. */
-const STALE_AFTER_SECONDS = 30 * 60;
-
-/**
- * Pi ACK payload — published by pi_agent.py on
- * home/<house>/actuator/<appliance_id>/ack after every dashboard override.
- * The dashboard must NOT update appliance state until this arrives.
- */
 export interface PiAck {
   schema_version: string;
   command_id: string;
@@ -30,278 +22,165 @@ export interface PiAck {
   rejected_reason: string | null;
   gpio_state: 0 | 1;
   measured_w: number | null;
-  verification: 'MATCH' | 'MISMATCH_STILL_DRAWING' | 'MISMATCH_NOT_DRAWING' | 'MISMATCH_WRONG_LEVEL' | 'NO_METER';
+  verification:
+    | 'MATCH'
+    | 'MISMATCH_STILL_DRAWING'
+    | 'MISMATCH_NOT_DRAWING'
+    | 'MISMATCH_WRONG_LEVEL'
+    | 'NO_METER';
   acked_at: string;
   latency_ms: number;
 }
 
-export interface FeedHandlers {
-  onFeed: (feed: Feed) => void;
-  /**
-   * Called when the Raspberry Pi publishes an ACK on
-   * home/<house>/actuator/<id>/ack  (QoS 1).
-   * The dashboard must NOT mark an appliance as switched until this fires.
-   */
-  onAck?: (ack: PiAck) => void;
+export interface RuntimeHealth {
+  source: string;
+  status: 'online' | 'offline' | string;
+  house_id?: string;
+  timestamp_ist?: string;
+  input_state_available?: boolean;
+  pi_status?: string;
+  gpio_enabled?: boolean;
+  hardware_confirmed_devices?: number;
+  wired_devices?: number;
+  measured_power_available?: boolean;
 }
 
-export function connectFeed({ onFeed, onAck }: FeedHandlers): () => void {
-  let state: HomeState | null = null;
-  let intent: Intent | null = null;
-  let lastMessage = 0;
+export interface FeedHandlers {
+  onFeed: (feed: Feed) => void;
+  onAck?: (ack: PiAck) => void;
+  onPiHealth?: (health: RuntimeHealth) => void;
+  onRuntimeHealth?: (health: RuntimeHealth) => void;
+}
+
+export function connectFeed({
+  onFeed,
+  onAck,
+  onPiHealth,
+  onRuntimeHealth,
+}: FeedHandlers): () => void {
+  let lastRuntimeMessage = 0;
   let client: MqttClient | null = null;
 
   const url = process.env.NEXT_PUBLIC_MQTT_URL;
 
-  // ------------------------------------------------------------
-  // MQTT URL CHECK
-  // ------------------------------------------------------------
-
-  if (!url) {
-    console.error('❌ NEXT_PUBLIC_MQTT_URL is not configured');
-
-    onFeed({
-      status: 'offline',
-      dataAgeSeconds: 0,
-      state: null,
-      intent: null,
-    });
-
-    return () => undefined;
-  }
-
-  console.log('🔌 Connecting to HiveMQ...');
-
-  // ------------------------------------------------------------
-  // MQTT CONFIG DIAGNOSTIC
-  // ------------------------------------------------------------
-
-  console.log('🔎 MQTT CONFIG:', {
-    url,
-    user: process.env.NEXT_PUBLIC_MQTT_USER,
-    hasPassword: !!process.env.NEXT_PUBLIC_MQTT_PASS,
-  });
-
-  // ------------------------------------------------------------
-  // FEED EMITTER
-  // ------------------------------------------------------------
-
   const emit = (
     status: Feed['status'],
-    freshState: HomeState | null = null,
-    freshIntent: Intent | null = null,
+    state: HomeState | null = null,
+    intent: Intent | null = null,
   ) => {
-    const age = lastMessage
-      ? (Date.now() - lastMessage) / 1000
+    const age = lastRuntimeMessage
+      ? (Date.now() - lastRuntimeMessage) / 1000
       : 0;
 
-    const effective =
+    const effective: Feed['status'] =
       status === 'live' &&
-      lastMessage &&
+      lastRuntimeMessage > 0 &&
       age > STALE_AFTER_SECONDS
         ? 'stale'
         : status;
 
-    // IMPORTANT:
-    // Only forward state/intent when that exact MQTT topic has just arrived.
-    // Re-emitting cached retained state after a Pi ACK would overwrite the
-    // hardware-confirmed level that useHomeState just applied.
     onFeed({
       status: effective,
       dataAgeSeconds: age,
-      state: freshState,
-      intent: freshIntent,
+      state,
+      intent,
     });
   };
 
-  // ------------------------------------------------------------
-  // CONNECT TO HIVEMQ
-  // ------------------------------------------------------------
+  if (!url) {
+    console.error('NEXT_PUBLIC_MQTT_URL is not configured');
+    emit('offline');
+    return () => undefined;
+  }
 
   client = mqtt.connect(url, {
     username: process.env.NEXT_PUBLIC_MQTT_USER,
     password: process.env.NEXT_PUBLIC_MQTT_PASS,
-
     reconnectPeriod: 2000,
     connectTimeout: 10_000,
-
     clean: true,
-
-    clientId: `sharp-dash-${Math.random()
-      .toString(16)
-      .slice(2, 10)}`,
+    clientId: `sharp-dash-${Math.random().toString(16).slice(2, 10)}`,
   });
-
-  // ------------------------------------------------------------
-  // CONNECT EVENT
-  // ------------------------------------------------------------
 
   client.on('connect', () => {
-    console.log('✅ MQTT CONNECTED TO HIVEMQ');
-
     const topics = [
-      `home/${HOUSE}/state`,
+      `home/${HOUSE}/runtime`,
       `home/${HOUSE}/intent`,
-      // Pi ACK topic — wildcard covers all appliance IDs.
-      // QoS 1 so we never miss an ACK on a flaky connection.
       `home/${HOUSE}/actuator/+/ack`,
+      `home/${HOUSE}/health/pi`,
+      `home/${HOUSE}/health/runtime`,
     ];
 
-    console.log('📡 Subscribing to:', topics);
-
-    client?.subscribe(
-      topics,
-      { qos: 1 },
-      (error) => {
-        if (error) {
-          console.error(
-            '❌ MQTT SUBSCRIBE ERROR:',
-            error
-          );
-          return;
-        }
-
-        console.log(
-          '✅ MQTT SUBSCRIBED:',
-          topics
-        );
-
-        emit('live');
+    client?.subscribe(topics, { qos: 1 }, (error) => {
+      if (error) {
+        console.error('MQTT subscribe error:', error);
+        emit('offline');
+        return;
       }
-    );
+
+      emit('live');
+    });
   });
 
-  // ------------------------------------------------------------
-  // MESSAGE EVENT
-  // ------------------------------------------------------------
-
   client.on('message', (topic, payload) => {
-    console.log(
-      '📨 MQTT MESSAGE:',
-      topic,
-      payload.toString()
-    );
-
     try {
-      const parsed = JSON.parse(
-        payload.toString()
-      );
+      const parsed = JSON.parse(payload.toString());
 
-      if (topic.endsWith('/state')) {
-        state = parsed as HomeState;
-        lastMessage = Date.now();
+      if (topic.endsWith('/runtime')) {
+        lastRuntimeMessage = Date.now();
+        emit('live', parsed as HomeState, null);
+        return;
+      }
 
-        console.log(
-          '🏠 HomeState received'
-        );
+      if (topic.endsWith('/intent')) {
+        emit('live', null, parsed as Intent);
+        return;
+      }
 
-        emit('live', state, null);
-      } else if (topic.endsWith('/intent')) {
-        intent = parsed as Intent;
-        lastMessage = Date.now();
-
-        console.log(
-          '🤖 Intent received'
-        );
-
-        emit('live', null, intent);
-      } else if (
-        topic.includes('/actuator/') &&
-        topic.endsWith('/ack')
-      ) {
-        // Raspberry Pi hardware ACK — the only thing that confirms
-        // GPIO changed. Do not replay cached HomeState after this ACK.
-        const ack = parsed as PiAck;
-        lastMessage = Date.now();
-
-        console.log(
-          '✅ Pi ACK received:',
-          ack.appliance_id,
-          ack.accepted ? 'ACCEPTED' : 'REJECTED',
-          `gpio_state=${ack.gpio_state}`
-        );
-
-        onAck?.(ack);
-
-        // Status-only update. state/intent stay null so the ACK-confirmed
-        // appliance level in useHomeState is not overwritten.
+      if (topic.includes('/actuator/') && topic.endsWith('/ack')) {
+        onAck?.(parsed as PiAck);
         emit('live');
+        return;
+      }
+
+      if (topic.endsWith('/health/pi')) {
+        onPiHealth?.(parsed as RuntimeHealth);
+        return;
+      }
+
+      if (topic.endsWith('/health/runtime')) {
+        onRuntimeHealth?.(parsed as RuntimeHealth);
       }
     } catch (error) {
-      console.error(
-        '❌ Invalid MQTT JSON:',
-        error
-      );
+      console.error('Invalid MQTT JSON:', topic, error);
     }
   });
 
-  // ------------------------------------------------------------
-  // RECONNECT
-  // ------------------------------------------------------------
-
-  client.on('reconnect', () => {
-    console.log('🔄 MQTT reconnecting...');
-    emit('connecting');
-  });
-
-  // ------------------------------------------------------------
-  // OFFLINE
-  // ------------------------------------------------------------
-
-  client.on('offline', () => {
-    console.log('⚠️ MQTT offline');
-    emit('offline');
-  });
-
-  // ------------------------------------------------------------
-  // ERROR
-  // ------------------------------------------------------------
-
+  client.on('reconnect', () => emit('connecting'));
+  client.on('offline', () => emit('offline'));
   client.on('error', (error) => {
-    console.error(
-      '❌ MQTT ERROR:',
-      error
-    );
-
+    console.error('MQTT error:', error);
     emit('offline');
   });
-
-  // ------------------------------------------------------------
-  // DATA AGE TIMER
-  // ------------------------------------------------------------
 
   const tick = setInterval(() => {
-    emit(
-      client?.connected
-        ? 'live'
-        : 'offline'
-    );
+    emit(client?.connected ? 'live' : 'offline');
   }, 1000);
 
-  // ------------------------------------------------------------
-  // CLEANUP
-  // ------------------------------------------------------------
-
   return () => {
-    console.log(
-      '🔌 Disconnecting MQTT...'
-    );
-
     clearInterval(tick);
-
     client?.end(true);
   };
 }
 
 /**
- * Publish Weather Payload to Raspberry Pi over MQTT (`home/${HOUSE}/weather`)
+ * Publish real weather obtained by the dashboard weather adapter to the Pi.
+ * This is not a simulated fallback: callers should only pass a fetched live
+ * WeatherData object unless the UI explicitly labels a scenario as simulated.
  */
 export function publishWeatherStream(weather: WeatherData): boolean {
   const url = process.env.NEXT_PUBLIC_MQTT_URL;
-  if (!url) {
-    console.warn('⚠️ MQTT URL not configured. Cannot stream weather payload.');
-    return false;
-  }
+  if (!url) return false;
 
   try {
     const client = mqtt.connect(url, {
@@ -319,21 +198,22 @@ export function publishWeatherStream(weather: WeatherData): boolean {
         weather,
       });
 
-      client.publish(topic, payload, { qos: 0 }, (err) => {
-        if (err) console.error('❌ Failed to publish weather stream:', err);
-        else console.log('📡 Published Weather Payload to Pi:', topic, weather);
+      client.publish(topic, payload, { qos: 0 }, (error) => {
+        if (error) {
+          console.error('Failed to publish weather stream:', error);
+        }
         client.end();
       });
     });
 
-    client.on('error', (err) => {
-      console.error('❌ MQTT Weather Client Error:', err);
+    client.on('error', (error) => {
+      console.error('MQTT weather client error:', error);
       client.end();
     });
 
     return true;
-  } catch (err) {
-    console.error('❌ Exception publishing weather:', err);
+  } catch (error) {
+    console.error('Exception publishing weather:', error);
     return false;
   }
 }
