@@ -132,6 +132,11 @@ export interface CommandAck {
     | 'NO_METER';
   acked_at: string;
   latency_ms: number;
+  /**
+   * UI-only delivery stage. `broker` means the dashboard request reached
+   * HiveMQ but the Raspberry Pi has not acknowledged GPIO actuation yet.
+   */
+  delivery_stage?: 'local' | 'broker' | 'hardware';
 }
 
 export interface OverrideRequest {
