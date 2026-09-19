@@ -72,10 +72,15 @@ export function ApplianceCard({
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
               PENDING…
             </span>
-          ) : isNecessity ? (
+          ) : isNecessity && isRunning ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-xs font-bold text-emerald-700">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               ON (PROTECTED)
+            </span>
+          ) : isNecessity && !isRunning ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 font-mono text-xs font-bold text-rose-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+              OFF (MANUAL)
             </span>
           ) : isRunning ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-xs font-bold text-emerald-700">
