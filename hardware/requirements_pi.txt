@@ -1,4 +1,5 @@
-# Lightweight Raspberry Pi requirements for SHARP HEMS Edge Agent & PKL RL Model
+# Lightweight Raspberry Pi requirements for SHARP HEMS Edge Agent
 numpy>=1.24.0
-paho-mqtt>=1.6.1
+paho-mqtt>=2.0.0
+python-dotenv>=1.0.0
 RPi.GPIO>=0.7.1; platform_machine == 'aarch64' or platform_machine == 'armv7l' or platform_machine == 'armv6l'

@@ -110,19 +110,31 @@ HEALTH_TOPIC = (
 # FROZEN SHARP HARDWARE REGISTRY
 # ============================================================
 
+# Primary GPIO pins: these match the physical prototype and the
+# dashboard appliance IDs exactly.  Any ID not listed here will
+# be rejected with an ACK reason of "level_not_supported".
+GPIO_PINS = {
+    "air_conditioner_01": 4,
+    "refrigerator_01":    13,
+    "washing_machine_01": 17,
+    "mixer_grinder_01":   18,
+    "television_01":      19,
+    "ev_charger_01":      26,
+}
+
+# Extra prototype LEDs: two additional AC LED channels wired to
+# GPIO 5 and 6.  They are not exposed to the dashboard yet, but
+# they are initialised LOW at startup so they don't float.
+EXTRA_GPIO_PINS = {
+    "air_conditioner_02": 5,
+    "air_conditioner_03": 6,
+}
+
 DEVICES = {
-
     "air_conditioner_01": {
-        "gpio": None,
-
-        "level_gpios": {
-            0: 4,
-            1: 5,
-            2: 6,
-        },
-
+        "gpio": 4,
         "necessity": False,
-        "supports_reduced": True,
+        "supports_reduced": False,
     },
 
     "refrigerator_01": {
@@ -154,6 +166,21 @@ DEVICES = {
         "necessity": False,
         "supports_reduced": False,
     },
+
+    # Extra prototype LEDs — not dashboard-controlled yet;
+    # included so that a mis-routed override is ACKed as
+    # rejected rather than causing a KeyError.
+    "air_conditioner_02": {
+        "gpio": 5,
+        "necessity": False,
+        "supports_reduced": False,
+    },
+
+    "air_conditioner_03": {
+        "gpio": 6,
+        "necessity": False,
+        "supports_reduced": False,
+    },
 }
 
 
@@ -161,7 +188,8 @@ DEVICES = {
 # INDICATORS & DISPLAY HARDWARE
 # ============================================================
 
-BUZZER_GPIO = 12
+# BUZZER: currently disconnected — do NOT require it.
+# BUZZER_GPIO = 12  (kept as a comment; do not set up this pin)
 
 OLED_SDA_GPIO = 2
 OLED_SCL_GPIO = 3
@@ -377,6 +405,7 @@ def setup_gpio():
         )
     )
 
+    # Primary appliance LED pins
     for device in (
         DEVICES.values()
     ):
@@ -388,21 +417,16 @@ def setup_gpio():
                 initial=off_level,
             )
 
-        level_pins = device.get("level_gpios")
-        if level_pins:
-            for lvl_pin in level_pins.values():
-                GPIO.setup(
-                    lvl_pin,
-                    GPIO.OUT,
-                    initial=off_level,
-                )
+    # Extra prototype LED pins (AC_02 / AC_03)
+    for pin in EXTRA_GPIO_PINS.values():
+        GPIO.setup(
+            pin,
+            GPIO.OUT,
+            initial=off_level,
+        )
 
-    # Setup indicator & display pins
-    GPIO.setup(
-        BUZZER_GPIO,
-        GPIO.OUT,
-        initial=off_level,
-    )
+    # NOTE: Buzzer is physically disconnected; skip its setup.
+    # OLED uses I²C and does not need GPIO.setup() here.
 
     print(
         "✅ Raspberry Pi GPIO enabled"
@@ -415,6 +439,11 @@ def setup_gpio():
             if RELAY_ACTIVE_LOW
             else "ACTIVE HIGH"
         ),
+    )
+
+    print(
+        "GPIO_PINS:",
+        GPIO_PINS,
     )
 
 
@@ -1216,8 +1245,8 @@ def main():
         )
 
         print(
-            "Waiting for RL "
-            "commands..."
+            "Waiting for dashboard "
+            "override commands..."
         )
 
         client.loop_forever()

@@ -69,8 +69,12 @@ export async function POST(request: NextRequest) {
   const username = process.env.MQTT_PUBLISH_USER;
   const password = process.env.MQTT_PUBLISH_PASS;
 
+  const overrideId = crypto.randomUUID();
+
+  // Payload matches sharp_override_v2 schema that pi_agent.py expects.
   const command = {
-    override_id: crypto.randomUUID(),
+    schema_version: 'sharp_override_v2',
+    override_id: overrideId,
     house_id: houseId,
     appliance_id: applianceId,
     requested_level: level,

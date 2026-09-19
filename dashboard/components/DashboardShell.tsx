@@ -81,6 +81,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
   const {
     homeState, peakEvent, systemStatus, activeScenario, setScenario,
     triggerOverride, declarePeakEvent, cancelPeakEvent, lastAck, clearLastAck,
+    pendingAppliances,
   } = useHomeState();
 
   const chartData = useMemo(() => generateDailyLoadProfile(), []);
@@ -166,6 +167,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
                 lastAck={lastAck}
                 onClearAck={clearLastAck}
                 initialTab={initialTab as FeatureTab}
+                pendingAppliances={pendingAppliances}
               />
             )}
             {role === 'grid' && (

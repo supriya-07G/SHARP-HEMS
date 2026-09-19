@@ -12,12 +12,15 @@ interface ApplianceCardProps {
   appliance: ApplianceState;
   onOverride?: (applianceId: string, level: ActionLevel) => void;
   isLoading?: boolean;
+  /** True while a command is in-flight to the Pi. Disables toggle; shows PENDING badge. */
+  isPending?: boolean;
 }
 
 export function ApplianceCard({
   appliance,
   onOverride,
   isLoading,
+  isPending = false,
 }: ApplianceCardProps) {
   const isNecessity = appliance.is_necessity;
   const isRunning = appliance.level === 1;
@@ -64,7 +67,12 @@ export function ApplianceCard({
 
         {/* State Pill */}
         <div>
-          {isNecessity ? (
+          {isPending ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 font-mono text-xs font-bold text-amber-700 animate-pulse">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
+              PENDING…
+            </span>
+          ) : isNecessity ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-mono text-xs font-bold text-emerald-700">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               ON (PROTECTED)
@@ -190,21 +198,35 @@ export function ApplianceCard({
           <button
             type="button"
             onClick={() => onOverride && onOverride(appliance.appliance_id, isRunning ? 0 : 1)}
-            disabled={isLoading}
-            title={isRunning ? "Turn Appliance OFF (Manual Resident Action)" : "Turn Appliance ON (Manual Resident Action)"}
+            disabled={isLoading || isPending}
+            title={
+              isPending
+                ? 'Waiting for Raspberry Pi confirmation…'
+                : isRunning
+                ? 'Turn Appliance OFF (Manual Resident Action)'
+                : 'Turn Appliance ON (Manual Resident Action)'
+            }
             className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-              isRunning ? 'bg-emerald-500 focus:ring-emerald-500' : 'bg-rose-500 focus:ring-rose-500'
-            } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+              isPending
+                ? 'bg-amber-400 focus:ring-amber-400'
+                : isRunning
+                ? 'bg-emerald-500 focus:ring-emerald-500'
+                : 'bg-rose-500 focus:ring-rose-500'
+            } ${isLoading || isPending ? 'opacity-50 cursor-wait' : ''}`}
             role="switch"
             aria-checked={isRunning}
           >
             <span className="sr-only">Toggle appliance power</span>
             <span
               className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out flex items-center justify-center text-[9px] font-extrabold ${
-                isRunning ? 'translate-x-7 text-emerald-600' : 'translate-x-0 text-rose-600'
+                isPending
+                  ? 'translate-x-3.5 text-amber-600'
+                  : isRunning
+                  ? 'translate-x-7 text-emerald-600'
+                  : 'translate-x-0 text-rose-600'
               }`}
             >
-              {isRunning ? 'ON' : 'OFF'}
+              {isPending ? '…' : isRunning ? 'ON' : 'OFF'}
             </span>
           </button>
         </div>

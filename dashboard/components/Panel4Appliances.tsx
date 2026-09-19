@@ -24,6 +24,8 @@ interface Panel4AppliancesProps {
   ) => Promise<CommandAck>;
   lastAck: CommandAck | null;
   onClearAck: () => void;
+  /** IDs of appliances with a command in-flight — shows PENDING badge. */
+  pendingAppliances: Set<string>;
 }
 
 export function Panel4Appliances({
@@ -31,6 +33,7 @@ export function Panel4Appliances({
   onOverride,
   lastAck,
   onClearAck,
+  pendingAppliances,
 }: Panel4AppliancesProps) {
   const [loadingApplianceId, setLoadingApplianceId] =
     useState<string | null>(null);
@@ -166,6 +169,7 @@ export function Panel4Appliances({
               isLoading={
                 loadingApplianceId === app.appliance_id
               }
+              isPending={pendingAppliances.has(app.appliance_id)}
             />
           ))}
         </div>
@@ -222,6 +226,7 @@ export function Panel4Appliances({
               isLoading={
                 loadingApplianceId === app.appliance_id
               }
+              isPending={pendingAppliances.has(app.appliance_id)}
             />
           ))}
         </div>

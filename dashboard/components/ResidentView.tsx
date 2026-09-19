@@ -29,6 +29,7 @@ interface ResidentViewProps {
   lastAck: CommandAck | null;
   onClearAck: () => void;
   initialTab?: FeatureTab;
+  pendingAppliances: Set<string>;
 }
 
 export function ResidentView({
@@ -39,6 +40,7 @@ export function ResidentView({
   lastAck,
   onClearAck,
   initialTab = 'overview',
+  pendingAppliances,
 }: ResidentViewProps) {
   const [activeTab, setActiveTab] = useState<FeatureTab>(initialTab);
   const [alertDismissed, setAlertDismissed] = useState(false);
@@ -196,6 +198,7 @@ export function ResidentView({
             onOverride={onOverride}
             lastAck={lastAck}
             onClearAck={onClearAck}
+            pendingAppliances={pendingAppliances}
           />
         </div>
       )}

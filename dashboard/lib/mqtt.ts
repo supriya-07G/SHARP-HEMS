@@ -16,11 +16,36 @@ const HOUSE = process.env.NEXT_PUBLIC_HOUSE_ID ?? 'demo';
 /** Past this point, received telemetry is considered stale. */
 const STALE_AFTER_SECONDS = 30 * 60;
 
-export interface FeedHandlers {
-  onFeed: (feed: Feed) => void;
+/**
+ * Pi ACK payload — published by pi_agent.py on
+ * home/<house>/actuator/<appliance_id>/ack after every dashboard override.
+ * The dashboard must NOT update appliance state until this arrives.
+ */
+export interface PiAck {
+  schema_version: string;
+  command_id: string;
+  appliance_id: string;
+  accepted: boolean;
+  applied_level: 0 | 1 | 2;
+  rejected_reason: string | null;
+  gpio_state: 0 | 1;
+  measured_w: number | null;
+  verification: 'MATCH' | 'MISMATCH_STILL_DRAWING' | 'MISMATCH_NOT_DRAWING' | 'MISMATCH_WRONG_LEVEL' | 'NO_METER';
+  acked_at: string;
+  latency_ms: number;
 }
 
-export function connectFeed({ onFeed }: FeedHandlers): () => void {
+export interface FeedHandlers {
+  onFeed: (feed: Feed) => void;
+  /**
+   * Called when the Raspberry Pi publishes an ACK on
+   * home/<house>/actuator/<id>/ack  (QoS 1).
+   * The dashboard must NOT mark an appliance as switched until this fires.
+   */
+  onAck?: (ack: PiAck) => void;
+}
+
+export function connectFeed({ onFeed, onAck }: FeedHandlers): () => void {
   let state: HomeState | null = null;
   let intent: Intent | null = null;
   let lastMessage = 0;
@@ -109,13 +134,16 @@ export function connectFeed({ onFeed }: FeedHandlers): () => void {
     const topics = [
       `home/${HOUSE}/state`,
       `home/${HOUSE}/intent`,
+      // Pi ACK topic — wildcard covers all appliance IDs.
+      // QoS 1 so we never miss an ACK on a flaky connection.
+      `home/${HOUSE}/actuator/+/ack`,
     ];
 
     console.log('📡 Subscribing to:', topics);
 
     client?.subscribe(
       topics,
-      { qos: 0 },
+      { qos: 1 },
       (error) => {
         if (error) {
           console.error(
@@ -163,6 +191,20 @@ export function connectFeed({ onFeed }: FeedHandlers): () => void {
         console.log(
           '🤖 Intent received'
         );
+      } else if (
+        topic.includes('/actuator/') &&
+        topic.endsWith('/ack')
+      ) {
+        // Raspberry Pi hardware ACK — the only thing that confirms
+        // GPIO changed. Do not update appliance state before this.
+        const ack = parsed as PiAck;
+        console.log(
+          '✅ Pi ACK received:',
+          ack.appliance_id,
+          ack.accepted ? 'ACCEPTED' : 'REJECTED',
+          `gpio_state=${ack.gpio_state}`
+        );
+        onAck?.(ack);
       }
 
       lastMessage = Date.now();

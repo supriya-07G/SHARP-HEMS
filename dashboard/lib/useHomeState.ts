@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useTransition, useEffect } from 'react';
+import { useState, useCallback, useTransition, useEffect, useRef } from 'react';
 import {
   HomeState,
   PeakEvent,
@@ -15,39 +15,35 @@ import {
   INITIAL_PEAK_EVENT,
   MOCK_SYSTEM_STATUS,
 } from './mockState';
-import { connectFeed } from './mqtt';
+import { connectFeed, PiAck } from './mqtt';
 
 /**
- * Hand the override to the Pi.
+ * Hand the override to the Pi via /api/override (server-side MQTT publish).
  *
- * Goes through our own API route, never straight to the broker: the publish
- * credential must not reach the browser, where anything NEXT_PUBLIC_* is
- * readable by whoever opens the page. A leaked read-only user exposes demo
- * telemetry; a leaked publish user exposes the relays.
- *
- * Fire-and-forget on purpose. The UI must not stall waiting for a broker, and
- * delivery is not the same thing as the appliance switching on - the Pi's
- * shield decides that and may refuse.
+ * Returns the parsed JSON body so the caller can extract override_id.
+ * Throws on network error or non-OK HTTP status so the caller can show failure.
+ * The publish credential stays on the server; it never reaches the browser.
  */
 async function sendOverrideToPi(
-  houseId: string, applianceId: string, level: ActionLevel,
+  houseId: string,
+  applianceId: string,
+  level: ActionLevel,
   clientLatencyMs?: number,
-): Promise<void> {
-  try {
-    await fetch('/api/override', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        house_id: houseId,
-        appliance_id: applianceId,
-        requested_level: level,
-        client_latency_ms: clientLatencyMs ?? null,
-      }),
-    });
-  } catch {
-    // No broker configured, or offline. The local view still updates; the
-    // connection indicator is what tells the resident it did not travel.
-  }
+): Promise<{ accepted: boolean; published: boolean; command?: { override_id: string }; error?: string }> {
+  const res = await fetch('/api/override', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      house_id: houseId,
+      appliance_id: applianceId,
+      requested_level: level,
+      client_latency_ms: clientLatencyMs ?? null,
+    }),
+  });
+
+  // Always parse JSON — even error responses carry a body.
+  const json = await res.json();
+  return json;
 }
 
 export interface UseHomeStateReturn {
@@ -65,6 +61,12 @@ export interface UseHomeStateReturn {
   lastAck: CommandAck | null;
   clearLastAck: () => void;
   setWeather: (weather: WeatherData) => void;
+  /**
+   * Set of appliance IDs that have a command in-flight to the Pi.
+   * The card must show PENDING and the toggle must be disabled until
+   * the Pi publishes an ACK and the ID is removed from this set.
+   */
+  pendingAppliances: Set<string>;
 }
 
 export function useHomeState(): UseHomeStateReturn {
@@ -84,7 +86,71 @@ export function useHomeState(): UseHomeStateReturn {
   const [lastAck, setLastAck] =
     useState<CommandAck | null>(null);
 
+  /**
+   * Appliance IDs currently waiting for a hardware ACK from the Pi.
+   * The card shows PENDING and the toggle is disabled until the Pi responds.
+   * State MUST NOT change until the ACK clears this entry.
+   */
+  const [pendingAppliances, setPendingAppliances] =
+    useState<Set<string>>(new Set());
+
   const [, startTransition] = useTransition();
+
+  // Stable ref so the mount-time MQTT closure always calls the current handler.
+  const handleAckRef = useRef<((ack: PiAck) => void) | null>(null);
+
+  // ============================================================
+  // PI ACK HANDLER
+  // Wired into the MQTT connection below via handleAckRef so that
+  // the mount-time closure always reaches the current implementation.
+  // Appliance state is ONLY updated here — never before the ACK arrives.
+  // ============================================================
+
+  const handleAck = useCallback((ack: PiAck) => {
+    // Remove from pending regardless of accepted/rejected.
+    setPendingAppliances((prev) => {
+      const next = new Set(prev);
+      next.delete(ack.appliance_id);
+      return next;
+    });
+
+    if (ack.accepted) {
+      // Hardware confirmed — update level, gpio_state, actuation_verified.
+      setHomeState((prev) => ({
+        ...prev,
+        appliances: prev.appliances.map((app) =>
+          app.appliance_id === ack.appliance_id
+            ? {
+                ...app,
+                level: ack.applied_level as ActionLevel,
+                gpio_state: ack.gpio_state,
+                actuation_verified: true,
+                shed_reason:
+                  ack.applied_level === 0 ? 'MANUAL_OVERRIDE' : null,
+              }
+            : app
+        ),
+      }));
+    }
+    // If rejected, the previous appliance state is unchanged.
+
+    // Always surface the ACK so the UI can show the banner.
+    setLastAck({
+      command_id: ack.command_id,
+      appliance_id: ack.appliance_id,
+      accepted: ack.accepted,
+      applied_level: ack.applied_level as ActionLevel,
+      rejected_reason: ack.rejected_reason,
+      gpio_state: ack.gpio_state,
+      measured_w: ack.measured_w,
+      verification: ack.verification,
+      acked_at: ack.acked_at,
+      latency_ms: ack.latency_ms,
+    });
+  }, []);
+
+  // Keep ref current on every render.
+  handleAckRef.current = handleAck;
 
   // ============================================================
   // MQTT CONNECTION
@@ -116,6 +182,8 @@ export function useHomeState(): UseHomeStateReturn {
           )}s`
         );
       },
+      // Use ref-forwarding so the stable closure always calls current handler.
+      onAck: (ack) => handleAckRef.current?.(ack),
     });
 
     // Disconnect MQTT when the component using this hook unmounts.
@@ -281,128 +349,102 @@ export function useHomeState(): UseHomeStateReturn {
       applianceId: string,
       requestedLevel: ActionLevel
     ): Promise<CommandAck> => {
-      const targetApp = homeState.appliances.find(
+      const t0 = Date.now();
+
+      const currentApp = homeState.appliances.find(
         (a) => a.appliance_id === applianceId
       );
 
-      // Record the intent with the Pi. Refusals below are the LOCAL preview of
-      // what the shield will say; the Pi remains the authority.
-      void sendOverrideToPi(homeState.house_id, applianceId, requestedLevel);
+      // --------------------------------------------------------
+      // Send to Pi via server-side MQTT publish.
+      // Throws on network error; returns JSON on HTTP error too.
+      // --------------------------------------------------------
+      let apiResult: {
+        accepted: boolean;
+        published: boolean;
+        command?: { override_id: string };
+        error?: string;
+      };
 
-      // SAFETY CHECK 1:
-      // Necessity load shedding refused.
-      if (
-        targetApp?.is_necessity &&
-        requestedLevel === 0
-      ) {
-        const rejectionAck: CommandAck = {
-          command_id: `cmd-${Date.now()}`,
+      try {
+        apiResult = await sendOverrideToPi(
+          homeState.house_id,
+          applianceId,
+          requestedLevel,
+        );
+      } catch (netErr) {
+        // Network down — can't reach /api/override at all.
+        const failedAck: CommandAck = {
+          command_id: `net-err-${Date.now()}`,
           appliance_id: applianceId,
           accepted: false,
-          applied_level: targetApp.level,
-          rejected_reason: 'NECESSITY_MASK',
-          gpio_state: targetApp.gpio_state,
+          applied_level: currentApp?.level ?? 0,
+          rejected_reason: 'BROKER_UNAVAILABLE',
+          gpio_state: currentApp?.gpio_state ?? 0,
           measured_w: null,
-          verification: 'MATCH',
-          acked_at: '14:05:12.184 IST',
-          latency_ms: 184,
+          verification: 'NO_METER',
+          acked_at: new Date().toISOString(),
+          latency_ms: Date.now() - t0,
         };
-
-        setLastAck(rejectionAck);
-
-        return rejectionAck;
+        setLastAck(failedAck);
+        console.error('❌ Override network error:', netErr);
+        return failedAck;
       }
 
-      // Check if grid peak is active and we're
-      // trying to turn on a luxury load.
-      if (
-        peakEvent.is_active &&
-        requestedLevel === 1 &&
-        targetApp &&
-        !targetApp.is_necessity
-      ) {
-        const simulatedAck: CommandAck = {
-          command_id: `cmd-${Date.now()}`,
+      if (!apiResult.published) {
+        // Broker rejected / not configured — leave state unchanged.
+        const brokerFailedAck: CommandAck = {
+          command_id: apiResult.command?.override_id ?? `api-err-${Date.now()}`,
           appliance_id: applianceId,
-          accepted: true,
-          applied_level: requestedLevel,
-          rejected_reason: null,
-          gpio_state: 1,
+          accepted: false,
+          applied_level: currentApp?.level ?? 0,
+          rejected_reason: apiResult.error ?? 'BROKER_UNAVAILABLE',
+          gpio_state: currentApp?.gpio_state ?? 0,
           measured_w: null,
-          verification: 'MATCH',
-          acked_at: '14:05:15.142 IST',
-          latency_ms: 142,
+          verification: 'NO_METER',
+          acked_at: new Date().toISOString(),
+          latency_ms: Date.now() - t0,
         };
-
-        startTransition(() => {
-          setHomeState((prev) => ({
-            ...prev,
-
-            aggregate_power_kw: Number(
-              (
-                prev.aggregate_power_kw +
-                (targetApp.power_15min_mean_w || 200) / 1000
-              ).toFixed(3)
-            ),
-
-            appliances: prev.appliances.map((app) =>
-              app.appliance_id === applianceId
-                ? {
-                    ...app,
-                    level: requestedLevel,
-                    shed_reason: null,
-                    gpio_state: 1,
-                  }
-                : app
-            ),
-          }));
-
-          setLastAck(simulatedAck);
-        });
-
-        return simulatedAck;
+        setLastAck(brokerFailedAck);
+        console.warn('⚠️ Override not published:', apiResult);
+        return brokerFailedAck;
       }
 
-      // Default normal override
-      const defaultAck: CommandAck = {
-        command_id: `cmd-${Date.now()}`,
+      // --------------------------------------------------------
+      // Published to HiveMQ.  Mark the appliance PENDING.
+      // The card shows a spinner; the toggle is disabled.
+      // Appliance state will only change when the Pi ACK arrives
+      // via MQTT and handleAck() is called.
+      // --------------------------------------------------------
+      setPendingAppliances((prev) => {
+        const next = new Set(prev);
+        next.add(applianceId);
+        return next;
+      });
+
+      console.log(
+        `⏳ Override dispatched for ${applianceId} → level ${requestedLevel}. Waiting for Pi ACK…`
+      );
+
+      // Return a "dispatched" ack.  The real GPIO-confirmed state
+      // change arrives asynchronously via handleAck().
+      const dispatchedAck: CommandAck = {
+        command_id: apiResult.command?.override_id ?? `dispatched-${Date.now()}`,
         appliance_id: applianceId,
         accepted: true,
         applied_level: requestedLevel,
         rejected_reason: null,
-        gpio_state: requestedLevel === 0 ? 0 : 1,
+        gpio_state: requestedLevel === 0 ? 0 : 1, // optimistic for ack object only
         measured_w: null,
-        verification: 'MATCH',
-        acked_at: '14:05:18.098 IST',
-        latency_ms: 98,
+        verification: 'NO_METER',
+        acked_at: new Date().toISOString(),
+        latency_ms: Date.now() - t0,
       };
 
-      startTransition(() => {
-        setHomeState((prev) => ({
-          ...prev,
-
-          appliances: prev.appliances.map((app) =>
-            app.appliance_id === applianceId
-              ? {
-                  ...app,
-                  level: requestedLevel,
-                  shed_reason:
-                    requestedLevel === 0
-                      ? 'MANUAL_OVERRIDE'
-                      : null,
-                  gpio_state:
-                    requestedLevel === 0 ? 0 : 1,
-                }
-              : app
-          ),
-        }));
-
-        setLastAck(defaultAck);
-      });
-
-      return defaultAck;
+      // Do NOT set lastAck here — wait for the real Pi ACK.
+      return dispatchedAck;
     },
-    [homeState.appliances, homeState.house_id, peakEvent.is_active]
+    [homeState.appliances, homeState.house_id]
   );
 
   // ============================================================
@@ -440,5 +482,6 @@ export function useHomeState(): UseHomeStateReturn {
     lastAck,
     clearLastAck,
     setWeather,
+    pendingAppliances,
   };
 }
