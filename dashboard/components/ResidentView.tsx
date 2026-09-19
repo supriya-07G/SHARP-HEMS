@@ -16,12 +16,12 @@ import { BillPanel } from './BillPanel';
 import { PeakAlert } from './PeakAlert';
 import { TopQuickNav, FeatureTab } from './TopQuickNav';
 import { WeatherCard } from './WeatherCard';
-import { LoadProfilePoint } from '@/lib/mockState';
+import type { LiveLoadPoint } from '@/lib/useHomeState';
 
 interface ResidentViewProps {
   homeState: HomeState;
   peakEvent: PeakEvent;
-  chartData: LoadProfilePoint[];
+  chartData: LiveLoadPoint[];
   onOverride: (
     applianceId: string,
     level: ActionLevel
@@ -164,7 +164,7 @@ export function ResidentView({
                 Power Profile & Analytics
               </h3>
               <p className="mt-1 text-[12px]" style={{ color: 'var(--slate)' }}>
-                Inspect 24-hour demand curves, peak events history, and grid response.
+                Inspect the runtime demand samples received since this dashboard was opened.
               </p>
               <span className="mt-3 inline-flex items-center text-[12px] font-semibold" style={{ color: '#d97706' }}>
                 View Analytics &rarr;
@@ -233,7 +233,7 @@ export function ResidentView({
                 Power Profile & Grid Performance
               </h2>
               <p className="text-xs mt-0.5" style={{ color: 'var(--slate)' }}>
-                24-hour demand profile and cyber-physical shield performance metrics.
+                Live runtime demand history and offline validation metrics.
               </p>
             </div>
           </div>
