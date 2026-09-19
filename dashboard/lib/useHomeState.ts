@@ -381,7 +381,9 @@ export function useHomeState(): UseHomeStateReturn {
 
   // Weather is authoritative only after it returns through the MQTT runtime
   // stream. Do not mutate the displayed HomeState optimistically.
-  const setWeather = useCallback((_weather: WeatherData) => undefined, []);
+  const setWeather = useCallback((weather: WeatherData) => {
+    void weather;
+  }, []);
 
   return {
     homeState,
