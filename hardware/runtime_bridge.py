@@ -52,6 +52,7 @@ ACK_SUB = f"home/{HOUSE_ID}/actuator/+/ack"
 PI_HEALTH_TOPIC = f"home/{HOUSE_ID}/health/pi"
 BRIDGE_HEALTH_TOPIC = f"home/{HOUSE_ID}/health/runtime"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
+GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -105,6 +106,7 @@ WIRED_DEVICES = {
 latest_input_state: dict | None = None
 latest_weather: dict | None = None
 latest_pi_health: dict | None = None
+latest_grid_event: dict | None = None
 last_state_received_mono = 0.0
 
 # Hardware-confirmed state from actuator ACK messages.
@@ -234,6 +236,20 @@ def build_runtime_state() -> dict | None:
         }
     )
 
+    if latest_grid_event:
+        action = latest_grid_event.get("action")
+        if action == "declare":
+            try:
+                severity = float(latest_grid_event.get("severity", 0.0))
+                if 0.0 <= severity <= 1.0:
+                    runtime["grid_peak_severity"] = severity
+                    runtime["grid_event"] = latest_grid_event
+            except (TypeError, ValueError):
+                pass
+        elif action == "cancel":
+            runtime["grid_peak_severity"] = 0.0
+            runtime["grid_event"] = latest_grid_event
+
     if latest_weather:
         weather = latest_weather.get("weather", latest_weather)
         if isinstance(weather, dict):
@@ -294,6 +310,7 @@ def on_connect(client, userdata, flags, reason_code, properties):
             (ACK_SUB, 1),
             (PI_HEALTH_TOPIC, 0),
             (WEATHER_TOPIC, 0),
+            (GRID_EVENT_TOPIC, 1),
         ]
     )
 
@@ -304,6 +321,7 @@ def on_message(client, userdata, msg):
     global latest_input_state
     global latest_weather
     global latest_pi_health
+    global latest_grid_event
     global last_state_received_mono
 
     payload = json_payload(msg)
@@ -327,6 +345,11 @@ def on_message(client, userdata, msg):
 
     if msg.topic == WEATHER_TOPIC:
         latest_weather = payload
+        publish_runtime(client)
+        return
+
+    if msg.topic == GRID_EVENT_TOPIC:
+        latest_grid_event = payload
         publish_runtime(client)
         return
 
@@ -401,6 +424,7 @@ def main():
     print(f"Runtime     : {RUNTIME_TOPIC}")
     print(f"GPIO ACKs   : {ACK_SUB}")
     print(f"Weather     : {WEATHER_TOPIC}")
+    print(f"Grid event  : {GRID_EVENT_TOPIC}")
     print("Power       : GPIO-confirmed estimate; measured_w remains null")
     print("=" * 68)
 
