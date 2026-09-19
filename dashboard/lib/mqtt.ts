@@ -86,7 +86,11 @@ export function connectFeed({ onFeed, onAck }: FeedHandlers): () => void {
   // FEED EMITTER
   // ------------------------------------------------------------
 
-  const emit = (status: Feed['status']) => {
+  const emit = (
+    status: Feed['status'],
+    freshState: HomeState | null = null,
+    freshIntent: Intent | null = null,
+  ) => {
     const age = lastMessage
       ? (Date.now() - lastMessage) / 1000
       : 0;
@@ -98,11 +102,15 @@ export function connectFeed({ onFeed, onAck }: FeedHandlers): () => void {
         ? 'stale'
         : status;
 
+    // IMPORTANT:
+    // Only forward state/intent when that exact MQTT topic has just arrived.
+    // Re-emitting cached retained state after a Pi ACK would overwrite the
+    // hardware-confirmed level that useHomeState just applied.
     onFeed({
       status: effective,
       dataAgeSeconds: age,
-      state,
-      intent,
+      state: freshState,
+      intent: freshIntent,
     });
   };
 
@@ -181,35 +189,44 @@ export function connectFeed({ onFeed, onAck }: FeedHandlers): () => void {
 
       if (topic.endsWith('/state')) {
         state = parsed as HomeState;
+        lastMessage = Date.now();
 
         console.log(
           '🏠 HomeState received'
         );
+
+        emit('live', state, null);
       } else if (topic.endsWith('/intent')) {
         intent = parsed as Intent;
+        lastMessage = Date.now();
 
         console.log(
           '🤖 Intent received'
         );
+
+        emit('live', null, intent);
       } else if (
         topic.includes('/actuator/') &&
         topic.endsWith('/ack')
       ) {
         // Raspberry Pi hardware ACK — the only thing that confirms
-        // GPIO changed. Do not update appliance state before this.
+        // GPIO changed. Do not replay cached HomeState after this ACK.
         const ack = parsed as PiAck;
+        lastMessage = Date.now();
+
         console.log(
           '✅ Pi ACK received:',
           ack.appliance_id,
           ack.accepted ? 'ACCEPTED' : 'REJECTED',
           `gpio_state=${ack.gpio_state}`
         );
+
         onAck?.(ack);
+
+        // Status-only update. state/intent stay null so the ACK-confirmed
+        // appliance level in useHomeState is not overwritten.
+        emit('live');
       }
-
-      lastMessage = Date.now();
-
-      emit('live');
     } catch (error) {
       console.error(
         '❌ Invalid MQTT JSON:',
