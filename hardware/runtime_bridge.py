@@ -56,8 +56,8 @@ GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 
 IST = ZoneInfo("Asia/Kolkata")
 
-# This is the physically wired prototype currently represented by pi_agent.py.
-# Watts are model/catalogue estimates, not meter measurements.
+# Final 10-device hardware registry. Keep IDs/flags/powers aligned with pi_agent.py and mock_rl_state.py.
+# Watts are catalogue/model estimates, not meter measurements.
 WIRED_DEVICES = {
     "air_conditioner_01": {
         "display_name": "Air Conditioner",
@@ -66,19 +66,33 @@ WIRED_DEVICES = {
         "is_necessity": False,
         "rated_w": 1328.4,
     },
-    "refrigerator_01": {
-        "display_name": "Refrigerator",
-        "appliance_type": "refrigerator",
+    "ceiling_fan_01": {
+        "display_name": "Motor Fan",
+        "appliance_type": "ceiling_fan",
         "service_class": "critical",
         "is_necessity": True,
-        "rated_w": 43.2,
+        "rated_w": 60.0,
     },
-    "washing_machine_01": {
-        "display_name": "Washing Machine",
-        "appliance_type": "washing_machine",
+    "ev_charger_01": {
+        "display_name": "EV Charger",
+        "appliance_type": "ev_charger",
         "service_class": "deferrable",
         "is_necessity": False,
-        "rated_w": 113.7,
+        "rated_w": 700.0,
+    },
+    "led_bulb_01": {
+        "display_name": "Light 1",
+        "appliance_type": "led_bulb",
+        "service_class": "critical",
+        "is_necessity": True,
+        "rated_w": 9.0,
+    },
+    "led_tube_01": {
+        "display_name": "Light 2",
+        "appliance_type": "led_tube",
+        "service_class": "critical",
+        "is_necessity": True,
+        "rated_w": 20.0,
     },
     "mixer_grinder_01": {
         "display_name": "Mixer Grinder",
@@ -87,19 +101,33 @@ WIRED_DEVICES = {
         "is_necessity": False,
         "rated_w": 500.0,
     },
+    "refrigerator_01": {
+        "display_name": "Refrigerator",
+        "appliance_type": "refrigerator",
+        "service_class": "critical",
+        "is_necessity": True,
+        "rated_w": 43.2,
+    },
+    "table_fan_01": {
+        "display_name": "USB Fan",
+        "appliance_type": "table_fan",
+        "service_class": "critical",
+        "is_necessity": True,
+        "rated_w": 40.0,
+    },
     "television_01": {
         "display_name": "Television",
         "appliance_type": "television",
         "service_class": "interruptible",
         "is_necessity": False,
-        "rated_w": 104.6,
+        "rated_w": 80.0,
     },
-    "ev_charger_01": {
-        "display_name": "EV Charger (prototype)",
-        "appliance_type": "ev_charger",
+    "washing_machine_01": {
+        "display_name": "Washing Machine",
+        "appliance_type": "washing_machine",
         "service_class": "deferrable",
         "is_necessity": False,
-        "rated_w": float(os.getenv("EV_CHARGER_PROXY_W", "1500")),
+        "rated_w": 113.7,
     },
 }
 
