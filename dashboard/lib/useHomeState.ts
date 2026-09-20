@@ -1,35 +1,39 @@
 'use client';
 
-import { useState, useCallback, useTransition, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  HomeState,
-  PeakEvent,
-  SystemConnectionStatus,
   ActionLevel,
   CommandAck,
+  HomeState,
+  Intent,
+  PeakEvent,
+  SystemConnectionStatus,
   WeatherData,
 } from './contracts';
 import {
-  NORMAL_HOME_STATE,
-  PEAK_ACTIVE_HOME_STATE,
-  INITIAL_PEAK_EVENT,
-  MOCK_SYSTEM_STATUS,
-} from './mockState';
-import { connectFeed, PiAck } from './mqtt';
+  connectFeed,
+  PiAck,
+  RuntimeHealth,
+} from './mqtt';
 
-/**
- * Hand the override to the Pi via /api/override (server-side MQTT publish).
- *
- * Returns the parsed JSON body so the caller can extract override_id.
- * Throws on network error or non-OK HTTP status so the caller can show failure.
- * The publish credential stays on the server; it never reaches the browser.
- */
+export interface LiveLoadPoint {
+  time: string;
+  sharpKw: number;
+  baselineKw: number;
+  gridPeakSeverity: number;
+}
+
 async function sendOverrideToPi(
   houseId: string,
   applianceId: string,
   level: ActionLevel,
   clientLatencyMs?: number,
-): Promise<{ accepted: boolean; published: boolean; command?: { override_id: string }; error?: string }> {
+): Promise<{
+  accepted: boolean;
+  published: boolean;
+  command?: { override_id: string };
+  error?: string;
+}> {
   const res = await fetch('/api/override', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -41,73 +45,123 @@ async function sendOverrideToPi(
     }),
   });
 
-  // Always parse JSON — even error responses carry a body.
-  const json = await res.json();
-  return json;
+  return res.json();
 }
 
+async function publishGridEvent(
+  action: 'declare' | 'cancel',
+  severity?: number,
+  durationMinutes?: number,
+) {
+  const res = await fetch('/api/grid-event', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      action,
+      severity,
+      duration_minutes: durationMinutes,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error ?? 'Grid event publish failed');
+  }
+}
+
+const EMPTY_PEAK_EVENT: PeakEvent = {
+  event_id: '',
+  sequence: 0,
+  region: 'APCPDCL / Guntur',
+  severity: 0,
+  declared_at: '',
+  expires_at: '',
+  reason: 'runtime_state',
+  is_active: false,
+};
+
+const INITIAL_STATUS: SystemConnectionStatus = {
+  status: 'disconnected',
+  data_age_seconds: 0,
+  broker_endpoint: 'HiveMQ WSS',
+  last_verified_at: '',
+  is_fallback: false,
+};
+
 export interface UseHomeStateReturn {
-  homeState: HomeState;
+  homeState: HomeState | null;
   peakEvent: PeakEvent;
+  intent: Intent | null;
   systemStatus: SystemConnectionStatus;
   activeScenario: 'normal' | 'peak' | 'outage';
   setScenario: (scenario: 'normal' | 'peak' | 'outage') => void;
   triggerOverride: (
     applianceId: string,
-    requestedLevel: ActionLevel
+    requestedLevel: ActionLevel,
   ) => Promise<CommandAck>;
   declarePeakEvent: (severity: number, durationMinutes: number) => void;
   cancelPeakEvent: () => void;
   lastAck: CommandAck | null;
   clearLastAck: () => void;
   setWeather: (weather: WeatherData) => void;
-  /**
-   * Set of appliance IDs that have a command in-flight to the Pi.
-   * The card must show PENDING and the toggle must be disabled until
-   * the Pi publishes an ACK and the ID is removed from this set.
-   */
   pendingAppliances: Set<string>;
+  history: LiveLoadPoint[];
+  piHealth: RuntimeHealth | null;
+  runtimeHealth: RuntimeHealth | null;
+}
+
+function peakFromState(state: HomeState): PeakEvent {
+  const severity = Number(state.grid_peak_severity ?? 0);
+  return {
+    event_id: `runtime-${state.step_id ?? state.timestamp_ist}`,
+    sequence: Number(state.step_id ?? 0),
+    region: 'APCPDCL / Guntur',
+    severity,
+    declared_at: state.timestamp_ist,
+    expires_at: '',
+    reason: severity >= 0.4 ? 'runtime_grid_peak' : 'runtime_normal',
+    is_active: severity >= 0.4,
+  };
+}
+
+function chartPoint(state: HomeState): LiveLoadPoint {
+  const when = new Date(state.timestamp_ist);
+  const time = Number.isNaN(when.getTime())
+    ? state.timestamp_ist
+    : when.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Kolkata',
+      });
+
+  // No uncontrolled live meter exists in this prototype. Use the current
+  // estimated aggregate for both series so we never fabricate a baseline.
+  return {
+    time,
+    sharpKw: Number(state.aggregate_power_kw ?? 0),
+    baselineKw: Number(state.aggregate_power_kw ?? 0),
+    gridPeakSeverity: Number(state.grid_peak_severity ?? 0),
+  };
 }
 
 export function useHomeState(): UseHomeStateReturn {
-  const [activeScenario, setActiveScenario] = useState<
-    'normal' | 'peak' | 'outage'
-  >('peak');
-
-  const [homeState, setHomeState] =
-    useState<HomeState>(PEAK_ACTIVE_HOME_STATE);
-
-  const [peakEvent, setPeakEvent] =
-    useState<PeakEvent>(INITIAL_PEAK_EVENT);
-
-  const [systemStatus] =
-    useState<SystemConnectionStatus>(MOCK_SYSTEM_STATUS);
-
-  const [lastAck, setLastAck] =
-    useState<CommandAck | null>(null);
-
-  /**
-   * Appliance IDs currently waiting for a hardware ACK from the Pi.
-   * The card shows PENDING and the toggle is disabled until the Pi responds.
-   * State MUST NOT change until the ACK clears this entry.
-   */
+  const [homeState, setHomeState] = useState<HomeState | null>(null);
+  const [peakEvent, setPeakEvent] = useState<PeakEvent>(EMPTY_PEAK_EVENT);
+  const [intent, setIntent] = useState<Intent | null>(null);
+  const [systemStatus, setSystemStatus] =
+    useState<SystemConnectionStatus>(INITIAL_STATUS);
+  const [lastAck, setLastAck] = useState<CommandAck | null>(null);
   const [pendingAppliances, setPendingAppliances] =
     useState<Set<string>>(new Set());
+  const [history, setHistory] = useState<LiveLoadPoint[]>([]);
+  const [piHealth, setPiHealth] = useState<RuntimeHealth | null>(null);
+  const [runtimeHealth, setRuntimeHealth] =
+    useState<RuntimeHealth | null>(null);
 
-  const [, startTransition] = useTransition();
-
-  // Stable ref so the mount-time MQTT closure always calls the current handler.
   const handleAckRef = useRef<((ack: PiAck) => void) | null>(null);
 
-  // ============================================================
-  // PI ACK HANDLER
-  // Wired into the MQTT connection below via handleAckRef so that
-  // the mount-time closure always reaches the current implementation.
-  // Appliance state is ONLY updated here — never before the ACK arrives.
-  // ============================================================
-
   const handleAck = useCallback((ack: PiAck) => {
-    // Remove from pending regardless of accepted/rejected.
     setPendingAppliances((prev) => {
       const next = new Set(prev);
       next.delete(ack.appliance_id);
@@ -115,26 +169,25 @@ export function useHomeState(): UseHomeStateReturn {
     });
 
     if (ack.accepted) {
-      // Hardware confirmed — update level, gpio_state, actuation_verified.
-      setHomeState((prev) => ({
-        ...prev,
-        appliances: prev.appliances.map((app) =>
-          app.appliance_id === ack.appliance_id
-            ? {
-                ...app,
-                level: ack.applied_level as ActionLevel,
-                gpio_state: ack.gpio_state,
-                actuation_verified: true,
-                shed_reason:
-                  ack.applied_level === 0 ? 'MANUAL_OVERRIDE' : null,
-              }
-            : app
-        ),
-      }));
+      setHomeState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          appliances: prev.appliances.map((app) =>
+            app.appliance_id === ack.appliance_id
+              ? {
+                  ...app,
+                  level: ack.applied_level as ActionLevel,
+                  gpio_state: ack.gpio_state,
+                  actuation_verified: true,
+                  measured_w: ack.measured_w,
+                }
+              : app,
+          ),
+        };
+      });
     }
-    // If rejected, the previous appliance state is unchanged.
 
-    // Always surface the ACK so the UI can show the banner.
     setLastAck({
       command_id: ack.command_id,
       appliance_id: ack.appliance_id,
@@ -146,220 +199,81 @@ export function useHomeState(): UseHomeStateReturn {
       verification: ack.verification,
       acked_at: ack.acked_at,
       latency_ms: ack.latency_ms,
+      delivery_stage: 'hardware',
     });
   }, []);
 
-  // Keep ref current on every render.
   handleAckRef.current = handleAck;
 
-  // ============================================================
-  // MQTT CONNECTION
-  // ============================================================
-
   useEffect(() => {
-    console.log('🔌 Starting MQTT connection...');
-
     const disconnect = connectFeed({
       onFeed: (feed) => {
-        console.log('📡 MQTT FEED:', feed);
+        setSystemStatus((prev) => ({
+          ...prev,
+          status:
+            feed.status === 'live'
+              ? 'connected'
+              : feed.status === 'connecting'
+                ? 'reconnecting'
+                : 'disconnected',
+          data_age_seconds: Math.round(feed.dataAgeSeconds),
+          last_verified_at:
+            feed.status === 'live'
+              ? new Date().toISOString()
+              : prev.last_verified_at,
+          is_fallback: feed.status === 'stale',
+        }));
 
-        // Update dashboard with real HomeState
-        // whenever a state message arrives from HiveMQ.
         if (feed.state) {
-          console.log('🏠 Received HomeState from MQTT');
           setHomeState(feed.state);
+          setPeakEvent(peakFromState(feed.state));
+          setHistory((prev) => {
+            const next = [...prev, chartPoint(feed.state!)];
+            return next.slice(-96);
+          });
         }
 
-        // Display intent for now.
-        // We will wire this into the UI/state later.
         if (feed.intent) {
-          console.log('🤖 Received Intent from MQTT:', feed.intent);
+          setIntent(feed.intent);
         }
-
-        console.log(
-          `MQTT status: ${feed.status} | data age: ${feed.dataAgeSeconds.toFixed(
-            1
-          )}s`
-        );
       },
-      // Use ref-forwarding so the stable closure always calls current handler.
       onAck: (ack) => handleAckRef.current?.(ack),
+      onPiHealth: setPiHealth,
+      onRuntimeHealth: setRuntimeHealth,
     });
 
-    // Disconnect MQTT when the component using this hook unmounts.
-    return () => {
-      console.log('🔌 Disconnecting MQTT...');
-      disconnect();
-    };
+    return disconnect;
   }, []);
-
-  // ============================================================
-  // SCENARIO CONTROL
-  // ============================================================
-
-  const setScenario = useCallback(
-    (scenario: 'normal' | 'peak' | 'outage') => {
-      startTransition(() => {
-        setActiveScenario(scenario);
-
-        if (scenario === 'normal') {
-          setHomeState(NORMAL_HOME_STATE);
-
-          setPeakEvent((prev) => ({
-            ...prev,
-            severity: 0.15,
-            is_active: false,
-          }));
-        } else if (scenario === 'peak') {
-          setHomeState(PEAK_ACTIVE_HOME_STATE);
-
-          setPeakEvent({
-            ...INITIAL_PEAK_EVENT,
-            is_active: true,
-            severity: 0.67,
-            declared_at: '14:05 IST',
-            expires_at: '16:00 IST',
-          });
-        } else if (scenario === 'outage') {
-          // Islanded outage mode
-          setHomeState({
-            ...PEAK_ACTIVE_HOME_STATE,
-            operating_mode: 'islanded_outage',
-            grid_absent: true,
-            aggregate_power_kw: 0.116,
-            appliances: PEAK_ACTIVE_HOME_STATE.appliances.map((app) => {
-              if (app.is_necessity) {
-                return { ...app, level: 1 };
-              }
-
-              return {
-                ...app,
-                level: 0,
-                shed_reason: 'GRID_OUTAGE_BATTERY_RESERVE',
-              };
-            }),
-          });
-
-          setPeakEvent((prev) => ({
-            ...prev,
-            is_active: false,
-          }));
-        }
-      });
-    },
-    []
-  );
-
-  // ============================================================
-  // DECLARE PEAK EVENT
-  // ============================================================
-
-  const declarePeakEvent = useCallback(
-    (severity: number, durationMinutes: number) => {
-      startTransition(() => {
-        const now = new Date();
-
-        const declaredStr = '14:05 IST';
-
-        const expireHour =
-          14 + Math.floor((5 + durationMinutes) / 60);
-
-        const expireMin = (5 + durationMinutes) % 60;
-
-        const expireStr = `${expireHour
-          .toString()
-          .padStart(2, '0')}:${expireMin
-          .toString()
-          .padStart(2, '0')} IST`;
-
-        const newEvent: PeakEvent = {
-          event_id: `apcpdcl-${now.getFullYear()}-09-15-${Math.floor(
-            Math.random() * 900 + 100
-          )}`,
-          sequence: 48,
-          region: 'APCPDCL / Guntur Urban Sub-12',
-          severity,
-          declared_at: declaredStr,
-          expires_at: expireStr,
-          reason: 'system_peak',
-          is_active: true,
-          homes_responding: 431,
-          mw_relieved: Number((severity * 0.42).toFixed(2)),
-        };
-
-        setPeakEvent(newEvent);
-
-        // Reflect in home state:
-        // if severity > 0.4, shed flexible loads.
-        if (severity >= 0.4) {
-          setHomeState((prev) => ({
-            ...prev,
-            grid_peak_severity: severity,
-            aggregate_power_kw: 0.145,
-
-            appliances: prev.appliances.map((app) => {
-              if (app.is_necessity) {
-                return app;
-              }
-
-              if (app.appliance_type === 'washing_machine') {
-                return {
-                  ...app,
-                  level: 0,
-                  shed_reason: 'PEAK_EVENT',
-                  deferred_until: '22:00 IST',
-                };
-              }
-
-              return {
-                ...app,
-                level: 0,
-                shed_reason: 'GRID_PEAK',
-              };
-            }),
-          }));
-        }
-      });
-    },
-    []
-  );
-
-  // ============================================================
-  // CANCEL PEAK EVENT
-  // ============================================================
-
-  const cancelPeakEvent = useCallback(() => {
-    startTransition(() => {
-      setPeakEvent((prev) => ({
-        ...prev,
-        is_active: false,
-        severity: 0.15,
-      }));
-
-      setHomeState(NORMAL_HOME_STATE);
-    });
-  }, []);
-
-  // ============================================================
-  // APPLIANCE OVERRIDE
-  // ============================================================
 
   const triggerOverride = useCallback(
     async (
       applianceId: string,
-      requestedLevel: ActionLevel
+      requestedLevel: ActionLevel,
     ): Promise<CommandAck> => {
       const t0 = Date.now();
-
-      const currentApp = homeState.appliances.find(
-        (a) => a.appliance_id === applianceId
+      const currentApp = homeState?.appliances.find(
+        (item) => item.appliance_id === applianceId,
       );
 
-      // --------------------------------------------------------
-      // Send to Pi via server-side MQTT publish.
-      // Throws on network error; returns JSON on HTTP error too.
-      // --------------------------------------------------------
-      let apiResult: {
+      if (!homeState) {
+        const unavailable: CommandAck = {
+          command_id: `runtime-unavailable-${Date.now()}`,
+          appliance_id: applianceId,
+          accepted: false,
+          applied_level: currentApp?.level ?? 0,
+          rejected_reason: 'RUNTIME_UNAVAILABLE',
+          gpio_state: currentApp?.gpio_state ?? 0,
+          measured_w: null,
+          verification: 'NO_METER',
+          acked_at: new Date().toISOString(),
+          latency_ms: Date.now() - t0,
+          delivery_stage: 'local',
+        };
+        setLastAck(unavailable);
+        return unavailable;
+      }
+
+      let result: {
         accepted: boolean;
         published: boolean;
         command?: { override_id: string };
@@ -367,112 +281,114 @@ export function useHomeState(): UseHomeStateReturn {
       };
 
       try {
-        apiResult = await sendOverrideToPi(
+        result = await sendOverrideToPi(
           homeState.house_id,
           applianceId,
           requestedLevel,
         );
-      } catch (netErr) {
-        // Network down — can't reach /api/override at all.
-        const failedAck: CommandAck = {
-          command_id: `net-err-${Date.now()}`,
+      } catch {
+        result = {
+          accepted: false,
+          published: false,
+          error: 'BROKER_UNAVAILABLE',
+        };
+      }
+
+      if (!result.published) {
+        const failed: CommandAck = {
+          command_id:
+            result.command?.override_id ?? `broker-error-${Date.now()}`,
           appliance_id: applianceId,
           accepted: false,
           applied_level: currentApp?.level ?? 0,
-          rejected_reason: 'BROKER_UNAVAILABLE',
+          rejected_reason: result.error ?? 'BROKER_UNAVAILABLE',
           gpio_state: currentApp?.gpio_state ?? 0,
           measured_w: null,
           verification: 'NO_METER',
           acked_at: new Date().toISOString(),
           latency_ms: Date.now() - t0,
+          delivery_stage: 'local',
         };
-        setLastAck(failedAck);
-        console.error('❌ Override network error:', netErr);
-        return failedAck;
+        setLastAck(failed);
+        return failed;
       }
 
-      if (!apiResult.published) {
-        // Broker rejected / not configured — leave state unchanged.
-        const brokerFailedAck: CommandAck = {
-          command_id: apiResult.command?.override_id ?? `api-err-${Date.now()}`,
-          appliance_id: applianceId,
-          accepted: false,
-          applied_level: currentApp?.level ?? 0,
-          rejected_reason: apiResult.error ?? 'BROKER_UNAVAILABLE',
-          gpio_state: currentApp?.gpio_state ?? 0,
-          measured_w: null,
-          verification: 'NO_METER',
-          acked_at: new Date().toISOString(),
-          latency_ms: Date.now() - t0,
-        };
-        setLastAck(brokerFailedAck);
-        console.warn('⚠️ Override not published:', apiResult);
-        return brokerFailedAck;
-      }
-
-      // --------------------------------------------------------
-      // Published to HiveMQ.  Mark the appliance PENDING.
-      // The card shows a spinner; the toggle is disabled.
-      // Appliance state will only change when the Pi ACK arrives
-      // via MQTT and handleAck() is called.
-      // --------------------------------------------------------
       setPendingAppliances((prev) => {
         const next = new Set(prev);
         next.add(applianceId);
         return next;
       });
 
-      console.log(
-        `⏳ Override dispatched for ${applianceId} → level ${requestedLevel}. Waiting for Pi ACK…`
-      );
-
-      // Return a "dispatched" ack.  The real GPIO-confirmed state
-      // change arrives asynchronously via handleAck().
-      const dispatchedAck: CommandAck = {
-        command_id: apiResult.command?.override_id ?? `dispatched-${Date.now()}`,
+      return {
+        command_id:
+          result.command?.override_id ?? `dispatched-${Date.now()}`,
         appliance_id: applianceId,
         accepted: true,
         applied_level: requestedLevel,
         rejected_reason: null,
-        gpio_state: requestedLevel === 0 ? 0 : 1, // optimistic for ack object only
+        gpio_state: currentApp?.gpio_state ?? 0,
         measured_w: null,
         verification: 'NO_METER',
         acked_at: new Date().toISOString(),
         latency_ms: Date.now() - t0,
+        delivery_stage: 'broker',
       };
-
-      // Do NOT set lastAck here — wait for the real Pi ACK.
-      return dispatchedAck;
     },
-    [homeState.appliances, homeState.house_id]
+    [homeState],
   );
 
-  // ============================================================
-  // CLEAR ACK
-  // ============================================================
-
-  const clearLastAck = useCallback(
-    () => setLastAck(null),
-    []
+  const declarePeakEvent = useCallback(
+    (severity: number, durationMinutes: number) => {
+      void publishGridEvent('declare', severity, durationMinutes).catch(
+        (error) => console.error('Grid event publish failed:', error),
+      );
+    },
+    [],
   );
 
-  const setWeather = useCallback((weatherData: WeatherData) => {
-    startTransition(() => {
-      setHomeState((prev) => ({
-        ...prev,
-        outdoor_temperature_c: weatherData.outdoor_temperature_c,
-        weather: weatherData,
-      }));
-    });
+  const cancelPeakEvent = useCallback(() => {
+    void publishGridEvent('cancel').catch((error) =>
+      console.error('Grid event cancel failed:', error),
+    );
   }, []);
 
-  // ============================================================
-  // RETURN
-  // ============================================================
+  // Kept for component compatibility. Scenario controls no longer fabricate
+  // local HomeState. Peak/normal requests are sent through the real MQTT path;
+  // outage simulation is intentionally not represented as live telemetry.
+  const setScenario = useCallback(
+    (scenario: 'normal' | 'peak' | 'outage') => {
+      if (scenario === 'peak') {
+        declarePeakEvent(0.67, 60);
+      } else if (scenario === 'normal') {
+        cancelPeakEvent();
+      } else {
+        console.warn(
+          'Outage simulation is disabled in live mode; no fake state created.',
+        );
+      }
+    },
+    [cancelPeakEvent, declarePeakEvent],
+  );
+
+  const activeScenario: 'normal' | 'peak' | 'outage' =
+    homeState?.grid_absent
+      ? 'outage'
+      : (homeState?.grid_peak_severity ?? 0) >= 0.4
+        ? 'peak'
+        : 'normal';
+
+  const clearLastAck = useCallback(() => setLastAck(null), []);
+
+  // Weather is authoritative only after it returns through the MQTT runtime
+  // stream. Do not mutate the displayed HomeState optimistically.
+  const setWeather = useCallback((weather: WeatherData) => {
+    void weather;
+  }, []);
 
   return {
     homeState,
     peakEvent,
+    intent,
     systemStatus,
     activeScenario,
     setScenario,
@@ -483,5 +399,8 @@ export function useHomeState(): UseHomeStateReturn {
     clearLastAck,
     setWeather,
     pendingAppliances,
+    history,
+    piHealth,
+    runtimeHealth,
   };
 }

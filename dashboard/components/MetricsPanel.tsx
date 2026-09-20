@@ -12,6 +12,9 @@ import {
 export function MetricsPanel() {
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
+        Offline validation results — not live Raspberry Pi or feeder telemetry.
+      </div>
 
       {/* =====================================================
           PROJECT HEADLINE
