@@ -6,7 +6,7 @@ feature order from scripts/generate_sharp_rl_transitions_v2.py:
 
   25 global features + 28 device slots x 10 features = 305.
 
-The six physical prototype appliances are assigned slots by device_id ascending,
+The ten physical prototype appliances are assigned slots by device_id ascending,
 which is the same ordering rule used by the training dataset generator.
 
 Usage:
@@ -92,6 +92,10 @@ DEVICE_ORDER = sorted([
     "mixer_grinder_01",
     "television_01",
     "ev_charger_01",
+    "led_bulb_01",
+    "led_tube_01",
+    "table_fan_01",
+    "ceiling_fan_01",
 ])
 
 DEVICE_META = {
@@ -106,6 +110,17 @@ DEVICE_META = {
         "cycle_type": 0.0,
         "is_ac": 1.0,
     },
+    "ceiling_fan_01": {
+        "display_name": "Motor Fan",
+        "appliance_type": "ceiling_fan",
+        "service_class": "critical",
+        "is_necessity": True,
+        "supports_reduced": False,
+        "power_kw": 0.0600,
+        "remaining_h": 4.0,
+        "cycle_type": 0.0,
+        "is_ac": 0.0,
+    },
     "ev_charger_01": {
         "display_name": "EV Charger",
         "appliance_type": "ev_charger",
@@ -113,6 +128,28 @@ DEVICE_META = {
         "is_necessity": False,
         "supports_reduced": False,
         "power_kw": 0.7000,
+        "remaining_h": 3.0,
+        "cycle_type": 0.0,
+        "is_ac": 0.0,
+    },
+    "led_bulb_01": {
+        "display_name": "Light 1",
+        "appliance_type": "led_bulb",
+        "service_class": "critical",
+        "is_necessity": True,
+        "supports_reduced": False,
+        "power_kw": 0.0090,
+        "remaining_h": 3.0,
+        "cycle_type": 0.0,
+        "is_ac": 0.0,
+    },
+    "led_tube_01": {
+        "display_name": "Light 2",
+        "appliance_type": "led_tube",
+        "service_class": "critical",
+        "is_necessity": True,
+        "supports_reduced": False,
+        "power_kw": 0.0200,
         "remaining_h": 3.0,
         "cycle_type": 0.0,
         "is_ac": 0.0,
@@ -137,6 +174,17 @@ DEVICE_META = {
         "power_kw": 0.0432,
         "remaining_h": 12.0,
         "cycle_type": 1.0,
+        "is_ac": 0.0,
+    },
+    "table_fan_01": {
+        "display_name": "USB Fan",
+        "appliance_type": "table_fan",
+        "service_class": "critical",
+        "is_necessity": True,
+        "supports_reduced": False,
+        "power_kw": 0.0400,
+        "remaining_h": 4.0,
+        "cycle_type": 0.0,
         "is_ac": 0.0,
     },
     "television_01": {
@@ -182,19 +230,27 @@ SCENARIOS = {
         "background_kw": 0.084,
         "current": {
             "air_conditioner_01": 1,
-            "refrigerator_01": 1,
-            "washing_machine_01": 1,
-            "mixer_grinder_01": 0,
-            "television_01": 0,
+            "ceiling_fan_01": 1,
             "ev_charger_01": 0,
+            "led_bulb_01": 1,
+            "led_tube_01": 1,
+            "mixer_grinder_01": 0,
+            "refrigerator_01": 1,
+            "table_fan_01": 0,
+            "television_01": 1,
+            "washing_machine_01": 1,
         },
         "wanted": {
             "air_conditioner_01": True,
-            "refrigerator_01": True,
-            "washing_machine_01": True,
-            "mixer_grinder_01": False,
-            "television_01": False,
+            "ceiling_fan_01": True,
             "ev_charger_01": False,
+            "led_bulb_01": True,
+            "led_tube_01": True,
+            "mixer_grinder_01": False,
+            "refrigerator_01": True,
+            "table_fan_01": False,
+            "television_01": True,
+            "washing_machine_01": True,
         },
     },
     "peak": {
@@ -217,19 +273,27 @@ SCENARIOS = {
         # something meaningful to decide under a peak.
         "current": {
             "air_conditioner_01": 1,
-            "refrigerator_01": 1,
-            "washing_machine_01": 1,
-            "mixer_grinder_01": 0,
-            "television_01": 1,
+            "ceiling_fan_01": 1,
             "ev_charger_01": 1,
+            "led_bulb_01": 1,
+            "led_tube_01": 1,
+            "mixer_grinder_01": 1,
+            "refrigerator_01": 1,
+            "table_fan_01": 1,
+            "television_01": 1,
+            "washing_machine_01": 1,
         },
         "wanted": {
             "air_conditioner_01": True,
-            "refrigerator_01": True,
-            "washing_machine_01": True,
-            "mixer_grinder_01": False,
-            "television_01": True,
+            "ceiling_fan_01": True,
             "ev_charger_01": False,
+            "led_bulb_01": True,
+            "led_tube_01": True,
+            "mixer_grinder_01": False,
+            "refrigerator_01": True,
+            "table_fan_01": True,
+            "television_01": True,
+            "washing_machine_01": True,
         },
     },
 }
@@ -339,7 +403,7 @@ def build_mock_home_state(scenario_name):
             aggregate += app["power_15min_mean_w"] / 1000.0
 
     return {
-        "schema_version": "sharp_home_state_mock_v1",
+        "schema_version": "sharp_home_state_mock_v2",
         "house_id": HOUSE_ID,
         "timestamp_ist": datetime.now(IST).isoformat(),
         "step_id": int(cfg["step_id"]),
@@ -361,6 +425,7 @@ def build_mock_home_state(scenario_name):
         "mock_source": "SHARP_RL_TRANSITIONS_V2_FEATURE_SCHEMA",
         "mock_scenario": scenario_name,
         "device_slot_rule": "device_id ascending within household",
+        "physical_device_count": len(DEVICE_ORDER),
     }
 
 
@@ -416,7 +481,7 @@ def publish(payload):
     client.loop_stop()
     client.disconnect()
 
-    print(f"✅ Published dataset-contract mock state → {STATE_TOPIC}")
+    print(f"✅ Published 10-device mock HomeState → {STATE_TOPIC}")
     print(f"   scenario: {payload['mock_scenario']}")
     print(f"   features: {len(payload['state_vector'])}")
     print("   slots:")
@@ -442,6 +507,7 @@ def main():
         print(json.dumps(payload, indent=2))
         print()
         print(f"✅ Feature count: {len(payload['state_vector'])}")
+        print(f"✅ Device count: {len(payload['appliances'])}")
         return
 
     publish(payload)
