@@ -13,6 +13,30 @@ import { Feed, HomeState, Intent, WeatherData } from './contracts';
 const HOUSE = process.env.NEXT_PUBLIC_HOUSE_ID ?? 'demo';
 const STALE_AFTER_SECONDS = 20;
 
+const RUNTIME_TOPIC = `home/${HOUSE}/runtime`;
+const INTENT_TOPIC = `home/${HOUSE}/intent`;
+const ACK_TOPIC = `home/${HOUSE}/actuator/+/ack`;
+const PI_HEALTH_TOPIC = `home/${HOUSE}/health/pi`;
+const RUNTIME_HEALTH_TOPIC = `home/${HOUSE}/health/runtime`;
+
+function isHomeState(value: unknown): value is HomeState {
+  if (!value || typeof value !== 'object') return false;
+
+  const state = value as Partial<HomeState>;
+
+  return (
+    typeof state.house_id === 'string' &&
+    typeof state.timestamp_ist === 'string' &&
+    typeof state.aggregate_power_kw === 'number' &&
+    Number.isFinite(state.aggregate_power_kw) &&
+    typeof state.sanctioned_load_kw === 'number' &&
+    Number.isFinite(state.sanctioned_load_kw) &&
+    typeof state.grid_peak_severity === 'number' &&
+    Number.isFinite(state.grid_peak_severity) &&
+    Array.isArray(state.appliances)
+  );
+}
+
 export interface PiAck {
   schema_version: string;
   command_id: string;
@@ -104,11 +128,11 @@ export function connectFeed({
 
   client.on('connect', () => {
     const topics = [
-      `home/${HOUSE}/runtime`,
-      `home/${HOUSE}/intent`,
-      `home/${HOUSE}/actuator/+/ack`,
-      `home/${HOUSE}/health/pi`,
-      `home/${HOUSE}/health/runtime`,
+      RUNTIME_TOPIC,
+      INTENT_TOPIC,
+      ACK_TOPIC,
+      PI_HEALTH_TOPIC,
+      RUNTIME_HEALTH_TOPIC,
     ];
 
     client?.subscribe(topics, { qos: 1 }, (error) => {
@@ -126,13 +150,31 @@ export function connectFeed({
     try {
       const parsed = JSON.parse(payload.toString());
 
-      if (topic.endsWith('/runtime')) {
-        lastRuntimeMessage = Date.now();
-        emit('live', parsed as HomeState, null);
+      // IMPORTANT: health/runtime also ends with "/runtime".
+      // Match exact topics so a runtime-health payload can never be
+      // misinterpreted as a HomeState.
+      if (topic === RUNTIME_HEALTH_TOPIC) {
+        onRuntimeHealth?.(parsed as RuntimeHealth);
         return;
       }
 
-      if (topic.endsWith('/intent')) {
+      if (topic === PI_HEALTH_TOPIC) {
+        onPiHealth?.(parsed as RuntimeHealth);
+        return;
+      }
+
+      if (topic === RUNTIME_TOPIC) {
+        if (!isHomeState(parsed)) {
+          console.error('Ignoring invalid runtime HomeState payload:', parsed);
+          return;
+        }
+
+        lastRuntimeMessage = Date.now();
+        emit('live', parsed, null);
+        return;
+      }
+
+      if (topic === INTENT_TOPIC) {
         emit('live', null, parsed as Intent);
         return;
       }
@@ -140,16 +182,6 @@ export function connectFeed({
       if (topic.includes('/actuator/') && topic.endsWith('/ack')) {
         onAck?.(parsed as PiAck);
         emit('live');
-        return;
-      }
-
-      if (topic.endsWith('/health/pi')) {
-        onPiHealth?.(parsed as RuntimeHealth);
-        return;
-      }
-
-      if (topic.endsWith('/health/runtime')) {
-        onRuntimeHealth?.(parsed as RuntimeHealth);
       }
     } catch (error) {
       console.error('Invalid MQTT JSON:', topic, error);
