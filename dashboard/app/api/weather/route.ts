@@ -1,54 +1,35 @@
 /**
- * The weather adapter. Idea book §39.
+ * Server-side live weather adapter for SHARP.
  *
- * Four of the model's 305 inputs are weather, and they drive the thermal model
- * - how fast a room heats, when the AC is wanted, how long it can be off
- * before someone is uncomfortable. They came from NASA POWER during training;
- * live they come from here.
+ * Open-Meteo supplies the four weather variables used by the RL state:
+ * temperature, relative humidity, shortwave radiation, and 10 m wind speed.
  *
- * §39 REQUIREMENTS, EACH IMPLEMENTED BELOW
- *
- *   "keep API keys server-side"      -> this is a route handler, not a hook.
- *                                       Open-Meteo needs no key at all, which
- *                                       removes the problem rather than hiding
- *                                       it.
- *   "use fixed project coordinates"  -> Guntur, until onboarding collects a
- *                                       user-approved household location.
- *   "cache current and forecast"     -> a short in-process cache; the control
- *                                       loop is 15 minutes, so per-request
- *                                       fetching would be waste.
- *   "emit stale/quality fields"      -> every response carries `quality` and
- *                                       `stale`, and §55 requires the consumer
- *                                       to lower confidence rather than guess.
- *
- * UNITS ARE THE TRAP. The model was trained on NASA POWER in:
- *
- *     T2M              degrees C          16.95 - 40.74
- *     RH2M             per cent           25.4  - 95.9
- *     ALLSKY_SFC_SW_DWN  W/m^2            0     - 833.6
- *     WS10M            m/s at 10 m        1.77  - 7.26
- *
- * Fahrenheit, or radiation as kWh/m^2/day, is silently wrong - no exception,
- * just confident bad decisions. Open-Meteo is requested in exactly these units
- * and the response is range-checked before it is served.
+ * A successful GET also publishes the converted WeatherData payload to
+ * home/<house>/weather using the server-side MQTT publish credential. This
+ * keeps write credentials out of the browser and lets runtime_bridge.py fold
+ * the reading into home/<house>/runtime.
  */
 
 import { NextResponse } from 'next/server';
+import mqtt from 'mqtt';
 
 export const runtime = 'nodejs';
 export const revalidate = 0;
+export const maxDuration = 15;
 
-/** Guntur. Fixed until onboarding collects a household location (§39). */
 const LATITUDE = Number(process.env.WEATHER_LAT ?? 16.3067);
 const LONGITUDE = Number(process.env.WEATHER_LON ?? 80.4365);
 const TIMEZONE = 'Asia/Kolkata';
 
-/** The control loop is 15 minutes; refetching faster buys nothing. */
-const CACHE_MS = 10 * 60 * 1000;
-/** Past this the reading is stale and the consumer must lower confidence. */
-const STALE_MS = 60 * 60 * 1000;
+const HOUSE_ID = process.env.NEXT_PUBLIC_HOUSE_ID ?? 'demo';
+const MQTT_URL = process.env.MQTT_URL;
+const MQTT_USER = process.env.MQTT_PUBLISH_USER;
+const MQTT_PASS = process.env.MQTT_PUBLISH_PASS;
 
-/** Ranges the model actually saw. Outside these, flag rather than serve. */
+const CACHE_MS = 10 * 60 * 1000;
+const STALE_MS = 60 * 60 * 1000;
+const MQTT_TIMEOUT_MS = 4000;
+
 const PLAUSIBLE = {
   temperature_c: [-10, 60],
   relative_humidity_pct: [0, 100],
@@ -57,13 +38,9 @@ const PLAUSIBLE = {
 } as const;
 
 export interface WeatherReading {
-  /** obs_T2M - degrees Celsius. */
   temperature_c: number;
-  /** obs_RH2M - per cent. */
   relative_humidity_pct: number;
-  /** obs_ALLSKY_SFC_SW_DWN - W/m^2, instantaneous, NOT a daily total. */
   shortwave_radiation_w_m2: number;
-  /** obs_WS10M - m/s at 10 metres, not surface wind. */
   wind_speed_10m_ms: number;
   observed_at: string;
   source: string;
@@ -74,43 +51,95 @@ export interface WeatherReading {
 
 let cached: { at: number; reading: WeatherReading } | null = null;
 
-function inRange(reading: Omit<WeatherReading, 'quality' | 'stale' | 'age_seconds'>) {
-  return (Object.keys(PLAUSIBLE) as Array<keyof typeof PLAUSIBLE>)
-    .every((key) => {
+function inRange(
+  reading: Omit<WeatherReading, 'quality' | 'stale' | 'age_seconds'>,
+) {
+  return (Object.keys(PLAUSIBLE) as Array<keyof typeof PLAUSIBLE>).every(
+    (key) => {
       const [lo, hi] = PLAUSIBLE[key];
       const value = reading[key] as number;
       return Number.isFinite(value) && value >= lo && value <= hi;
-    });
+    },
+  );
+}
+
+function calculateHeatIndex(tempC: number, humidityPct: number): number {
+  if (tempC < 27) return tempC;
+
+  const t = (tempC * 9) / 5 + 32;
+  const r = humidityPct;
+
+  const hi =
+    -42.379 +
+    2.04901523 * t +
+    10.14333127 * r -
+    0.22475541 * t * r -
+    0.00683783 * t * t -
+    0.05481717 * r * r +
+    0.00122874 * t * t * r +
+    0.00085282 * t * r * r -
+    0.00000199 * t * t * r * r;
+
+  return Number((((hi - 32) * 5) / 9).toFixed(1));
+}
+
+function toDashboardWeather(reading: WeatherReading) {
+  const temp = reading.temperature_c;
+  const humidity = reading.relative_humidity_pct;
+
+  return {
+    outdoor_temperature_c: temp,
+    relative_humidity_pct: humidity,
+    solar_irradiance_wm2: reading.shortwave_radiation_w_m2,
+    heat_index_c: calculateHeatIndex(temp, humidity),
+    wind_speed_kmh: Number((reading.wind_speed_10m_ms * 3.6).toFixed(1)),
+    weather_condition:
+      reading.quality === 'cached'
+        ? 'Cached live weather'
+        : reading.quality === 'out_of_range'
+          ? 'Live weather — quality warning'
+          : 'Live weather',
+    location: 'Guntur, Andhra Pradesh',
+    last_updated: reading.observed_at,
+    is_extreme_heat: temp >= 40,
+  };
 }
 
 async function fetchOpenMeteo(): Promise<WeatherReading> {
-  // Open-Meteo is the only common free source that returns shortwave
-  // radiation, which OpenWeather's free tier does not include - and it needs
-  // no API key, so there is no credential to leak.
   const url = new URL('https://api.open-meteo.com/v1/forecast');
+
   url.searchParams.set('latitude', String(LATITUDE));
   url.searchParams.set('longitude', String(LONGITUDE));
-  url.searchParams.set('current',
-    'temperature_2m,relative_humidity_2m,shortwave_radiation,wind_speed_10m');
+  url.searchParams.set(
+    'current',
+    'temperature_2m,relative_humidity_2m,shortwave_radiation,wind_speed_10m',
+  );
   url.searchParams.set('timezone', TIMEZONE);
-  // Ask for the exact units the model was trained on.
   url.searchParams.set('temperature_unit', 'celsius');
   url.searchParams.set('wind_speed_unit', 'ms');
 
-  const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  const response = await fetch(url, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(6000),
+  });
+
   if (!response.ok) {
     throw new Error(`Open-Meteo responded ${response.status}`);
   }
+
   const body = await response.json();
-  const now = body?.current;
-  if (!now) throw new Error('Open-Meteo returned no current block');
+  const current = body?.current;
+
+  if (!current) {
+    throw new Error('Open-Meteo returned no current block');
+  }
 
   const base = {
-    temperature_c: Number(now.temperature_2m),
-    relative_humidity_pct: Number(now.relative_humidity_2m),
-    shortwave_radiation_w_m2: Number(now.shortwave_radiation),
-    wind_speed_10m_ms: Number(now.wind_speed_10m),
-    observed_at: String(now.time ?? new Date().toISOString()),
+    temperature_c: Number(current.temperature_2m),
+    relative_humidity_pct: Number(current.relative_humidity_2m),
+    shortwave_radiation_w_m2: Number(current.shortwave_radiation),
+    wind_speed_10m_ms: Number(current.wind_speed_10m),
+    observed_at: String(current.time ?? new Date().toISOString()),
     source: 'open-meteo',
   };
 
@@ -122,43 +151,115 @@ async function fetchOpenMeteo(): Promise<WeatherReading> {
   };
 }
 
+function publishMqtt(topic: string, payload: unknown): Promise<void> {
+  if (!MQTT_URL) {
+    return Promise.reject(new Error('MQTT_URL is not configured'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const client = mqtt.connect(MQTT_URL, {
+      username: MQTT_USER,
+      password: MQTT_PASS,
+      reconnectPeriod: 0,
+      connectTimeout: MQTT_TIMEOUT_MS,
+      clean: true,
+      clientId: `sharp-weather-api-${Math.random().toString(16).slice(2, 10)}`,
+    });
+
+    let finished = false;
+
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      client.end(true, () => (error ? reject(error) : resolve()));
+    };
+
+    const timer = setTimeout(
+      () => finish(new Error('MQTT weather publish timed out')),
+      MQTT_TIMEOUT_MS,
+    );
+
+    client.on('error', (error) => finish(error as Error));
+
+    client.on('connect', () => {
+      client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => {
+        finish(error ?? undefined);
+      });
+    });
+  });
+}
+
+async function publishWeatherToRuntime(reading: WeatherReading): Promise<boolean> {
+  if (!MQTT_URL) return false;
+
+  try {
+    await publishMqtt(`home/${HOUSE_ID}/weather`, {
+      source: 'sharp_server_weather_gateway',
+      timestamp: new Date().toISOString(),
+      weather: toDashboardWeather(reading),
+    });
+    return true;
+  } catch (error) {
+    console.error('Weather MQTT publish failed:', error);
+    return false;
+  }
+}
+
+async function respondWithReading(reading: WeatherReading) {
+  const mqttPublished = await publishWeatherToRuntime(reading);
+
+  return NextResponse.json({
+    ...reading,
+    mqtt_published: mqttPublished,
+  });
+}
+
 export async function GET() {
   const now = Date.now();
 
   if (cached && now - cached.at < CACHE_MS) {
     const age = Math.round((now - cached.at) / 1000);
-    return NextResponse.json({
+
+    const reading: WeatherReading = {
       ...cached.reading,
       quality: 'cached',
       stale: now - cached.at > STALE_MS,
       age_seconds: age,
-    } satisfies WeatherReading);
+    };
+
+    return respondWithReading(reading);
   }
 
   try {
     const reading = await fetchOpenMeteo();
     cached = { at: now, reading };
-    return NextResponse.json(reading);
+    return respondWithReading(reading);
   } catch (error) {
-    // §55 operational fallback: serve a clearly identified cached value and
-    // lower confidence. Never invent a plausible-looking number - the model
-    // would act on it and nobody would know why.
     if (cached) {
       const age = Math.round((now - cached.at) / 1000);
-      return NextResponse.json({
+
+      const reading: WeatherReading = {
         ...cached.reading,
         quality: 'cached',
         stale: true,
         age_seconds: age,
-      } satisfies WeatherReading);
+      };
+
+      return respondWithReading(reading);
     }
-    return NextResponse.json({
-      quality: 'unavailable',
-      stale: true,
-      age_seconds: 0,
-      error: error instanceof Error ? error.message : 'weather unavailable',
-      note: 'No reading and no cache. The Pi must fall back to its own cached '
-          + 'value or the seasonal curve, and lower confidence (idea book §55).',
-    }, { status: 503 });
+
+    return NextResponse.json(
+      {
+        quality: 'unavailable',
+        stale: true,
+        age_seconds: 0,
+        error:
+          error instanceof Error ? error.message : 'weather unavailable',
+        note:
+          'No weather reading and no cache are available. No fabricated fallback was used.',
+      },
+      { status: 503 },
+    );
   }
 }
