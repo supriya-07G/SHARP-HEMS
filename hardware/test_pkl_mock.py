@@ -20,6 +20,7 @@ from pi_agent import (
     N_BRANCHES,
     PklSharpPolicy,
     PKL_MODEL_PATH,
+    apply_grid_peak_policy,
 )
 
 from mock_rl_state import (
@@ -79,15 +80,25 @@ def evaluate(policy, scenario):
             f"-> {LEVEL_NAMES[action]:<7} | {qtxt}"
         )
 
-    return q, actions, payload
+    slot_to_appliance = {int(app["slot"]): app for app in payload["appliances"] if app["appliance_id"] in GPIO_PINS}
+    wants = np.zeros(N_BRANCHES, dtype=bool)
+    for app in payload["appliances"]:
+        if app["appliance_id"] in GPIO_PINS:
+            wants[int(app["slot"])] = bool(app["occupant_wants"])
+    severity = float(payload.get("grid_peak_severity", state[5]))
+    effective_actions, overrides = apply_grid_peak_policy(actions, slot_to_appliance, wants, severity)
+    if overrides:
+        print("GRID-PEAK POLICY OVERRIDES:", overrides)
+    print("Effective physical-rig actions:", {app["appliance_id"]: LEVEL_NAMES[int(effective_actions[int(app["slot"])])] for app in payload["appliances"] if app["appliance_id"] in GPIO_PINS})
+    return q, actions, payload, effective_actions
 
 
 def main():
     print(f"Loading: {PKL_MODEL_PATH}")
     policy = PklSharpPolicy(PKL_MODEL_PATH)
 
-    q_normal, a_normal, normal = evaluate(policy, "normal")
-    q_peak, a_peak, peak = evaluate(policy, "peak")
+    q_normal, a_normal, normal, effective_normal = evaluate(policy, "normal")
+    q_peak, a_peak, peak, effective_peak = evaluate(policy, "peak")
 
     delta = float(np.max(np.abs(q_peak - q_normal)))
 
@@ -103,7 +114,7 @@ def main():
         int(np.sum(a_normal != a_peak)),
         "of",
         N_BRANCHES,
-        "branches",
+        "branches (raw PKL)",
     )
 
     if q_normal.shape != (28, 3):
@@ -132,6 +143,8 @@ def main():
                 raise AssertionError(
                     f"Safety mask allowed necessity shed: {app['appliance_id']}"
                 )
+
+    print("Changed effective actions:", int(np.sum(effective_normal != effective_peak)), "of", N_BRANCHES, "branches (after peak policy)")
 
     print()
     print("✅ PKL MOCK INFERENCE TEST PASSED")
