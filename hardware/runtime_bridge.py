@@ -137,13 +137,16 @@ latest_pi_health: dict | None = None
 latest_grid_event: dict | None = None
 last_state_received_mono = 0.0
 
-# Hardware-confirmed state from actuator ACK messages.
+# ACK/readback state. GPIO readback confirms only the Pi pin level,
+# not that the connected appliance physically operated.
 confirmed = {
     appliance_id: {
-        "level": 0,
-        "gpio_state": 0,
-        "acked": False,
+        "level": None,
+        "gpio_state": None,
+        "ack_received": False,
+        "gpio_readback_verified": False,
         "acked_at": None,
+        "verification": "NO_ACK",
     }
     for appliance_id in WIRED_DEVICES
 }
@@ -197,19 +200,28 @@ def build_runtime_state() -> dict | None:
         source = src_apps.get(appliance_id, {})
         hw = confirmed[appliance_id]
 
-        # Before the first ACK, do not claim actuation verification. We may show
-        # the incoming intended level, but it is clearly unverified.
-        if hw["acked"]:
+        # Only real Pi GPIO output readback is trusted as a pin-level result.
+        # Even that is NOT sensor confirmation that the appliance itself worked.
+        gpio_verified = bool(hw["gpio_readback_verified"])
+        if gpio_verified:
             level = int(hw["level"])
             gpio_state = int(hw["gpio_state"])
-            verified = True
+            power_w = meta["rated_w"] if gpio_state != 0 else 0.0
+            controllable_w += power_w
+            state_basis = "raspberry_pi_gpio_readback"
+            power_estimate = round(power_w, 3)
         else:
-            level = int(source.get("level", 0) or 0)
-            gpio_state = int(source.get("gpio_state", 1 if level else 0) or 0)
-            verified = False
-
-        power_w = meta["rated_w"] if level != 0 else 0.0
-        controllable_w += power_w
+            # Keep a display-friendly intended level, but explicitly mark it
+            # unverified and do not count it as hardware-derived load.
+            source_level = source.get("level")
+            level = int(source_level) if source_level in (0, 1, 2) else 0
+            gpio_state = None
+            state_basis = (
+                "accepted_command_without_gpio_readback"
+                if hw["ack_received"]
+                else "model_input_unverified"
+            )
+            power_estimate = None
 
         appliances.append(
             {
@@ -223,16 +235,24 @@ def build_runtime_state() -> dict | None:
                 "level": level,
                 "occupant_wants": bool(source.get("occupant_wants", False)),
                 "peak_locked_out": bool(source.get("peak_locked_out", False)),
-                "power_15min_mean_w": round(power_w, 3),
+                "power_15min_mean_w": power_estimate,
                 "measured_w": None,
                 "gpio_state": gpio_state,
-                "actuation_verified": verified,
+                "gpio_readback_verified": gpio_verified,
+                # No appliance-current/power sensor exists in this prototype.
+                "actuation_verified": False,
+                "verification_status": (
+                    "GPIO_READBACK_ONLY_NOT_APPLIANCE_CONFIRMED"
+                    if gpio_verified
+                    else state_basis
+                ),
+                "state_basis": state_basis,
                 "remaining_service_hours": float(
                     source.get("remaining_service_hours", 0.0) or 0.0
                 ),
                 "shed_reason": source.get("shed_reason"),
                 "deferred_until": source.get("deferred_until"),
-                "power_basis": "gpio_state_x_catalogued_15min_mean_w",
+                "power_basis": "catalogued_estimate_only_when_gpio_readback_available",
                 "last_hardware_ack": hw["acked_at"],
             }
         )
@@ -310,8 +330,13 @@ def publish_bridge_health(client: mqtt.Client, status: str = "online") -> None:
         "timestamp_ist": now_ist(),
         "input_state_available": latest_input_state is not None,
         "pi_status": (latest_pi_health or {}).get("status", "unknown"),
-        "hardware_confirmed_devices": sum(
-            1 for item in confirmed.values() if item["acked"]
+        # Kept at zero because there is no sensor confirming appliance operation.
+        "hardware_confirmed_devices": 0,
+        "gpio_readback_verified_devices": sum(
+            1 for item in confirmed.values() if item["gpio_readback_verified"]
+        ),
+        "acknowledged_commands": sum(
+            1 for item in confirmed.values() if item["ack_received"]
         ),
         "wired_devices": len(WIRED_DEVICES),
         "measured_power_available": False,
@@ -387,18 +412,29 @@ def on_message(client, userdata, msg):
         if appliance_id not in confirmed:
             return
 
-        # Only accepted ACKs prove that the commanded hardware state was applied.
         if payload.get("accepted") is True:
-            confirmed[appliance_id]["level"] = int(
-                payload.get("applied_level", 0) or 0
-            )
-            confirmed[appliance_id]["gpio_state"] = int(
-                payload.get("gpio_state", 0) or 0
-            )
-            confirmed[appliance_id]["acked"] = True
+            confirmed[appliance_id]["ack_received"] = True
             confirmed[appliance_id]["acked_at"] = payload.get(
                 "acked_at", now_ist()
             )
+            confirmed[appliance_id]["verification"] = payload.get(
+                "verification", "UNSPECIFIED"
+            )
+
+            # Never trust an ACK from a simulated Windows agent as hardware state.
+            # GPIO readback still verifies only the pin, not appliance operation.
+            readback_verified = (
+                payload.get("gpio_readback_verified") is True
+                and payload.get("verification") == "GPIO_READBACK_ONLY"
+            )
+            confirmed[appliance_id]["gpio_readback_verified"] = readback_verified
+            if readback_verified:
+                confirmed[appliance_id]["level"] = int(
+                    payload.get("applied_level", 0) or 0
+                )
+                confirmed[appliance_id]["gpio_state"] = int(
+                    payload.get("gpio_state", 0) or 0
+                )
 
         publish_runtime(client)
         publish_bridge_health(client)
