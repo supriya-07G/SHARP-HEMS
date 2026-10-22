@@ -3,22 +3,19 @@ SHARP live runtime bridge.
 
 Purpose
 -------
-The RL/model input stream (home/<house>/state) is not the same thing as
-hardware-confirmed runtime telemetry. This bridge keeps those concerns separate:
+Keep model-input state separate from command ACKs and Pi GPIO pin readback.
+The runtime topic is retained for the dashboard, but a command ACK is not proof
+that an appliance operated.
 
-    state (model input / replay / state builder)
-        + actuator ACKs from the Raspberry Pi
-        + live weather already sent over MQTT
-        -> runtime (retained, dashboard-facing truth)
-
-The dashboard should subscribe to home/<house>/runtime, never manufacture a
-HomeState from mock data.
+    model input + command ACKs + Pi GPIO pin readback
+        -> runtime with explicit verification status
 
 Important
 ---------
-There is no PZEM in the current prototype. Appliance power is therefore an
-estimate derived from GPIO-confirmed ON/OFF state multiplied by the catalogued
-15-minute mean wattage. measured_w stays null.
+There is no PZEM/current sensor in this prototype. GPIO readback only reports
+the Pi output pin level; it cannot confirm relay contacts, appliance operation,
+or actual power draw. Power is estimated from catalogue wattage only when a
+real Pi GPIO readback is available. measured_w remains null.
 """
 
 from __future__ import annotations
@@ -275,9 +272,10 @@ def build_runtime_state() -> dict | None:
             "power_basis": "estimated_from_gpio_and_catalogue",
             "measured_power_available": False,
             "runtime_truth": {
-                "gpio_state": "hardware_ack_readback",
-                "appliance_level": "hardware_ack_when_available",
-                "appliance_power": "estimated_not_measured",
+                "gpio_state": "real_pi_gpio_readback_when_available_otherwise_null",
+                "appliance_level": "gpio_readback_level_or_unverified_model_input",
+                "actuation": "not_sensor_confirmed",
+                "appliance_power": "catalogue_estimate_not_measured",
                 "measured_w": "unavailable_no_meter",
                 "context_fields": "model_input_or_config_derived",
             },
