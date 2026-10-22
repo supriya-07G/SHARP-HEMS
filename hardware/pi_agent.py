@@ -62,6 +62,8 @@ MANUAL_OVERRIDE_HOLD_SECONDS = int(
     os.getenv("MANUAL_OVERRIDE_HOLD_SECONDS", "900")
 )
 
+GRID_PEAK_POLICY_THRESHOLD = float(os.getenv("GRID_PEAK_POLICY_THRESHOLD", "0.60"))
+
 # Live weather older than this cannot override RL weather features.
 WEATHER_MAX_AGE_SECONDS = int(
     os.getenv("WEATHER_MAX_AGE_SECONDS", "3600")
@@ -199,6 +201,13 @@ OLED_SCL_GPIO = 3
 
 current_levels = {
     device_id: 0
+    for device_id in DEVICES
+}
+
+# None means this process has not yet sent a GPIO command for the device.
+# Do not infer physical output state from current_levels initial defaults.
+last_applied_levels = {
+    device_id: None
     for device_id in DEVICES
 }
 
@@ -356,6 +365,44 @@ class PklSharpPolicy:
             )
 
         return actions, q
+
+
+# ============================================================
+# GRID-PEAK POLICY OVERLAY
+# ============================================================
+
+PEAK_FLEXIBLE_LOADS = {
+    "air_conditioner_01",
+    "ev_charger_01",
+    "washing_machine_01",
+    "television_01",
+    "mixer_grinder_01",
+}
+
+
+def apply_grid_peak_policy(actions, slot_to_appliance, occupant_wants, grid_severity):
+    """Shed unrequested flexible loads during a high-severity grid event.
+
+    Essential loads are excluded. Devices under manual override are excluded
+    earlier when slot_to_appliance is built. This is a deterministic safety /
+    demand-response overlay; it does not modify the trained PKL weights.
+    """
+    result = np.asarray(actions, dtype=int).copy()
+    overrides = {}
+    if grid_severity is None or float(grid_severity) < GRID_PEAK_POLICY_THRESHOLD:
+        return result, overrides
+
+    for slot, appliance in slot_to_appliance.items():
+        appliance_id = appliance.get("appliance_id")
+        if appliance_id not in PEAK_FLEXIBLE_LOADS:
+            continue
+        if bool(occupant_wants[slot]):
+            continue
+        if int(result[slot]) != 0:
+            result[slot] = 0
+            overrides[appliance_id] = "grid_peak_unrequested_flexible_load"
+
+    return result, overrides
 
 
 # ============================================================
@@ -1088,6 +1135,8 @@ def handle_command(client, payload):
         return
 
     gpio_state = apply_gpio(appliance_id, level)
+    with state_lock:
+        last_applied_levels[appliance_id] = int(level)
     # Briefly show the physical command on the OLED before returning
     # to the rotating status screens.
     trigger_oled_command(appliance_id, level)
@@ -1297,6 +1346,24 @@ def handle_rl_state(client, payload_text):
         print(f"❌ RL inference failed: {exc}")
         return
 
+    grid_severity_for_policy = payload.get("grid_peak_severity", state[5])
+    try:
+        grid_severity_for_policy = float(grid_severity_for_policy)
+    except (TypeError, ValueError):
+        grid_severity_for_policy = float(state[5])
+
+    actions, grid_peak_overrides = apply_grid_peak_policy(
+        actions,
+        slot_to_appliance,
+        occupant_wants,
+        grid_severity_for_policy,
+    )
+    if grid_peak_overrides:
+        print(
+            "⚡ GRID-PEAK POLICY → severity "
+            f"{grid_severity_for_policy:.2f}; overrides: {grid_peak_overrides}"
+        )
+
     latency_ms = (time.perf_counter() - started) * 1000
     decision_id = str(uuid.uuid4())
 
@@ -1333,8 +1400,8 @@ def handle_rl_state(client, payload_text):
         "timestamp_ist": payload.get("timestamp_ist"),
         "proposed": proposed,
         "executed": {**executed, **proposed},
-        "shield_reasons": shield_reasons,
-        "policy_source": "bdq_v2_pkl_edge",
+        "shield_reasons": {**shield_reasons, **{k: [v] for k, v in grid_peak_overrides.items()}},
+        "policy_source": "bdq_v2_pkl_edge_with_peak_overlay",
         "decision_latency_ms": round(latency_ms, 3),
     }
 
@@ -1352,9 +1419,9 @@ def handle_rl_state(client, payload_text):
         level = int(actions[slot])
 
         with state_lock:
-            old_level = current_levels.get(appliance_id, 0)
+            last_level = last_applied_levels.get(appliance_id)
 
-        if old_level == level:
+        if last_level == level:
             print(
                 f"   ↪ unchanged | {appliance_id} "
                 f"already {LEVEL_NAMES[level]}"
