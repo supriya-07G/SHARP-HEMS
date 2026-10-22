@@ -144,7 +144,28 @@ def main():
                     f"Safety mask allowed necessity shed: {app['appliance_id']}"
                 )
 
-    print("Changed effective actions:", int(np.sum(effective_normal != effective_peak)), "of", N_BRANCHES, "branches (after peak policy)")
+    changed_effective = int(np.sum(effective_normal != effective_peak))
+    print("Changed effective actions:", changed_effective, "of", N_BRANCHES, "branches (after peak policy)")
+
+    # The smoke test must verify the intended peak-overlay behavior, not merely
+    # print it. The mock Peak scenario leaves the EV charger unrequested.
+    ev_slot = next(
+        int(app["slot"])
+        for app in peak["appliances"]
+        if app["appliance_id"] == "ev_charger_01"
+    )
+    if float(peak.get("grid_peak_severity", peak["state_vector"][5])) >= 0.60:
+        ev_wanted = next(
+            bool(app["occupant_wants"])
+            for app in peak["appliances"]
+            if app["appliance_id"] == "ev_charger_01"
+        )
+        if not ev_wanted and int(effective_peak[ev_slot]) != 0:
+            raise AssertionError("Peak overlay failed to shed unrequested EV charger")
+        if not ev_wanted and int(a_peak[ev_slot]) != int(effective_peak[ev_slot]):
+            print("✅ Peak overlay changed EV charger action to SHED")
+    if changed_effective == 0:
+        raise AssertionError("Normal/Peak produced no effective action difference after peak overlay")
 
     print()
     print("✅ PKL MOCK INFERENCE TEST PASSED")
