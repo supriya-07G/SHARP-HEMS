@@ -1064,7 +1064,13 @@ def publish_ack(
         "rejected_reason": rejected_reason,
         "gpio_state": int(gpio_state),
         "measured_w": None,
-        "verification": "NO_METER",
+        # GPIO output readback is not proof that an appliance actually operated.
+        "gpio_readback_verified": bool(GPIO_ENABLED and GPIO is not None),
+        "verification": (
+            "GPIO_READBACK_ONLY"
+            if GPIO_ENABLED and GPIO is not None
+            else "SIMULATED_NO_GPIO"
+        ),
         "acked_at": timestamp_ist(),
         "latency_ms": round(latency_ms, 3),
     }
