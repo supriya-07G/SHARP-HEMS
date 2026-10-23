@@ -1364,6 +1364,33 @@ def handle_rl_state(client, payload_text):
         occupant_wants,
         grid_severity_for_policy,
     )
+
+    # Deterministic normal-demo baseline: keep exactly two lights, the
+    # refrigerator, and the ceiling fan ON. The RL model still runs above,
+    # but this named demo scenario intentionally fixes its final output state.
+    if payload.get("mock_scenario") == "normal":
+        normal_levels = {
+            "air_conditioner_01": 0,
+            "ceiling_fan_01": 1,
+            "ev_charger_01": 0,
+            "led_bulb_01": 1,
+            "led_tube_01": 1,
+            "mixer_grinder_01": 0,
+            "refrigerator_01": 1,
+            "table_fan_01": 0,
+            "television_01": 0,
+            "washing_machine_01": 0,
+        }
+        for slot, appliance in slot_to_appliance.items():
+            appliance_id = appliance.get("appliance_id")
+            if appliance_id in normal_levels:
+                actions[slot] = normal_levels[appliance_id]
+        print(
+            "🟢 NORMAL SCENARIO BASELINE → "
+            "Light 1 ON, Light 2 ON, Refrigerator ON, Ceiling Fan ON; "
+            "all other rig loads OFF"
+        )
+
     if grid_peak_overrides:
         print(
             "⚡ GRID-PEAK POLICY → severity "
