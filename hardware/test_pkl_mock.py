@@ -5,7 +5,13 @@ This does NOT touch MQTT or GPIO. It proves:
   1) the PKL loads,
   2) the 305 -> BDQ forward pass runs,
   3) legal actions are produced for the six prototype appliances,
-  4) changing normal -> peak input changes the Q-values.
+  4) changing normal -> peak input changes the Q-values,
+  5) the luxury peak policy gives the four scenario outcomes:
+       grid+household peak -> luxury shed
+       grid peak only      -> luxury shed
+       household peak only -> luxury shed
+       neither             -> luxury never shed, even one the resident
+                              switched on
 
 Usage:
   python hardware/test_pkl_mock.py
@@ -20,7 +26,8 @@ from pi_agent import (
     N_BRANCHES,
     PklSharpPolicy,
     PKL_MODEL_PATH,
-    apply_grid_peak_policy,
+    PEAK_FLEXIBLE_LOADS,
+    apply_luxury_peak_policy,
 )
 
 from mock_rl_state import (
@@ -49,7 +56,17 @@ def masks(payload):
     return present, necessity, reduced, wanted
 
 
-def evaluate(policy, scenario):
+# Grid peak is declared from the dashboard; here it is set as it would be
+# once the declared peak has passed its 10-minute warning.
+GRID_SHED = {
+    "normal": False,
+    "grid_peak": True,
+    "household_peak": False,
+    "grid_and_household_peak": True,
+}
+
+
+def evaluate(policy, scenario, resident_on=()):
     payload = build_mock_home_state(scenario)
     state = np.asarray(payload["state_vector"], dtype=float)
     present, necessity, reduced, wanted = masks(payload)
@@ -81,14 +98,23 @@ def evaluate(policy, scenario):
         )
 
     slot_to_appliance = {int(app["slot"]): app for app in payload["appliances"] if app["appliance_id"] in GPIO_PINS}
-    wants = np.zeros(N_BRANCHES, dtype=bool)
-    for app in payload["appliances"]:
-        if app["appliance_id"] in GPIO_PINS:
-            wants[int(app["slot"])] = bool(app["occupant_wants"])
-    severity = float(payload.get("grid_peak_severity", state[5]))
-    effective_actions, overrides = apply_grid_peak_policy(actions, slot_to_appliance, wants, severity)
+    live_levels = {
+        app["appliance_id"]: max(
+            int(app["level"]),
+            1 if app["appliance_id"] in resident_on else 0,
+        )
+        for app in payload["appliances"]
+    }
+    effective_actions, overrides = apply_luxury_peak_policy(
+        actions,
+        slot_to_appliance,
+        live_levels,
+        GRID_SHED[scenario],
+        bool(payload["household_peak"]),
+        set(),
+    )
     if overrides:
-        print("GRID-PEAK POLICY OVERRIDES:", overrides)
+        print("LUXURY PEAK POLICY OVERRIDES:", overrides)
     print("Effective physical-rig actions:", {app["appliance_id"]: LEVEL_NAMES[int(effective_actions[int(app["slot"])])] for app in payload["appliances"] if app["appliance_id"] in GPIO_PINS})
     return q, actions, payload, effective_actions
 
@@ -98,7 +124,7 @@ def main():
     policy = PklSharpPolicy(PKL_MODEL_PATH)
 
     q_normal, a_normal, normal, effective_normal = evaluate(policy, "normal")
-    q_peak, a_peak, peak, effective_peak = evaluate(policy, "peak")
+    q_peak, a_peak, peak, effective_peak = evaluate(policy, "grid_peak")
 
     delta = float(np.max(np.abs(q_peak - q_normal)))
 
@@ -144,28 +170,35 @@ def main():
                     f"Safety mask allowed necessity shed: {app['appliance_id']}"
                 )
 
-    changed_effective = int(np.sum(effective_normal != effective_peak))
-    print("Changed effective actions:", changed_effective, "of", N_BRANCHES, "branches (after peak policy)")
+    def luxury_levels(payload, actions):
+        return {
+            app["appliance_id"]: int(actions[int(app["slot"])])
+            for app in payload["appliances"]
+            if app["appliance_id"] in PEAK_FLEXIBLE_LOADS
+        }
 
-    # The smoke test must verify the intended peak-overlay behavior, not merely
-    # print it. The mock Peak scenario leaves the EV charger unrequested.
-    ev_slot = next(
-        int(app["slot"])
-        for app in peak["appliances"]
-        if app["appliance_id"] == "ev_charger_01"
+    print()
+    print("=" * 72)
+    print("FOUR SCENARIOS")
+    print("=" * 72)
+
+    for scenario in ("grid_and_household_peak", "grid_peak", "household_peak"):
+        _, _, payload, effective = evaluate(policy, scenario)
+        luxury = luxury_levels(payload, effective)
+        if any(luxury.values()):
+            raise AssertionError(f"{scenario}: luxury loads not shed: {luxury}")
+        print(f"✅ {scenario}: all luxury loads shed")
+
+    # Normal: the resident switched the AC and EV on. No peak -> they stay on.
+    _, _, payload, effective = evaluate(
+        policy, "normal", resident_on=("air_conditioner_01", "ev_charger_01"),
     )
-    if float(peak.get("grid_peak_severity", peak["state_vector"][5])) >= 0.60:
-        ev_wanted = next(
-            bool(app["occupant_wants"])
-            for app in peak["appliances"]
-            if app["appliance_id"] == "ev_charger_01"
-        )
-        if not ev_wanted and int(effective_peak[ev_slot]) != 0:
-            raise AssertionError("Peak overlay failed to shed unrequested EV charger")
-        if not ev_wanted and int(a_peak[ev_slot]) != int(effective_peak[ev_slot]):
-            print("✅ Peak overlay changed EV charger action to SHED")
-    if changed_effective == 0:
-        raise AssertionError("Normal/Peak produced no effective action difference after peak overlay")
+    luxury = luxury_levels(payload, effective)
+    expected_on = {"air_conditioner_01", "ev_charger_01", "television_01"}
+    off = sorted(a for a in expected_on if not luxury[a])
+    if off:
+        raise AssertionError(f"normal: luxury loads shed with no peak: {off}")
+    print("✅ normal: AC, EV and TV stay on with no peak")
 
     print()
     print("✅ PKL MOCK INFERENCE TEST PASSED")

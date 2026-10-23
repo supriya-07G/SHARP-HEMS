@@ -9,11 +9,18 @@ feature order from scripts/generate_sharp_rl_transitions_v2.py:
 The ten physical prototype appliances are assigned slots by device_id ascending,
 which is the same ordering rule used by the training dataset generator.
 
+Scenarios (grid peak is declared from the dashboard's Grid Controller):
+  normal                   no grid peak, no household peak -> nothing shed
+  grid_peak                grid peak, no household peak    -> luxury shed
+  household_peak           household peak, no grid peak    -> luxury shed here
+  grid_and_household_peak  both                            -> luxury shed
+  peak                     alias of grid_peak
+
 Usage:
   python hardware/mock_rl_state.py --scenario normal --print-only
-  python hardware/mock_rl_state.py --scenario peak --print-only
-  python hardware/mock_rl_state.py --scenario normal --publish
-  python hardware/mock_rl_state.py --scenario peak --publish
+  python hardware/mock_rl_state.py --scenario household_peak --publish
+  python hardware/mock_rl_state.py --scenario grid_peak --publish
+    then declare the peak from the dashboard's Grid Controller
 """
 
 import argparse
@@ -211,6 +218,46 @@ DEVICE_META = {
     },
 }
 
+# Normal: fridge, TV, ceiling fan and both lights on; luxury loads off.
+# A resident may still switch a luxury load on - with no peak it stays on.
+NORMAL_CURRENT = {
+    "air_conditioner_01": 0,
+    "ceiling_fan_01": 1,
+    "ev_charger_01": 0,
+    "led_bulb_01": 1,
+    "led_tube_01": 1,
+    "mixer_grinder_01": 0,
+    "refrigerator_01": 1,
+    "table_fan_01": 0,
+    "television_01": 1,
+    "washing_machine_01": 0,
+}
+
+# Any peak: every appliance starts on and in use, so the Pi visibly sheds
+# the luxury loads once the peak is observed.
+ALL_ON = {appliance_id: 1 for appliance_id in NORMAL_CURRENT}
+
+MIDDAY_GRID_PEAK_CONTEXT = {
+    "outdoor_c": 36.8,
+    "rh_pct": 53.0,
+    "solar_wm2": 780.0,
+    "wind_ms": 1.8,
+    "grid_percentile": 0.93,
+    # Model feature only. The Pi treats a grid peak as real only when the
+    # Grid Controller declares it from the dashboard.
+    "grid_peak_severity": 0.67,
+}
+
+# Four scenarios: grid peak x household peak.
+#
+#   scenario                 grid peak*  household peak  luxury loads
+#   grid_and_household_peak  yes         yes             shed
+#   grid_peak                yes         no              shed
+#   household_peak           no          yes             shed, this house only
+#   normal                   no          no              never shed
+#
+# *The grid peak is declared from the dashboard's Grid Controller, not by this
+#  script. "expects_grid_peak" only tells the operator to declare it.
 SCENARIOS = {
     "normal": {
         "step_id": 50,
@@ -219,7 +266,7 @@ SCENARIOS = {
         "solar_wm2": 650.0,
         "wind_ms": 2.2,
         "grid_percentile": 0.45,
-        "grid_peak_severity": 0.15,
+        "grid_peak_severity": 0.0,
         "month_to_date_kwh": 96.4,
         "sanctioned_kw": 1.0,
         "indoor_c": 30.8,
@@ -228,41 +275,14 @@ SCENARIOS = {
         "tariff_inr_kwh": 4.50,
         "battery_soc": 0.85,
         "background_kw": 0.084,
-        # Normal baseline: only two lights, refrigerator, and ceiling fan ON.
-        # All other devices begin OFF so normal and peak have distinct inputs.
-        "current": {
-            "air_conditioner_01": 0,
-            "ceiling_fan_01": 1,
-            "ev_charger_01": 0,
-            "led_bulb_01": 1,
-            "led_tube_01": 1,
-            "mixer_grinder_01": 0,
-            "refrigerator_01": 1,
-            "table_fan_01": 0,
-            "television_01": 0,
-            "washing_machine_01": 0,
-        },
-        "wanted": {
-            "air_conditioner_01": False,
-            "ceiling_fan_01": True,
-            "ev_charger_01": False,
-            "led_bulb_01": True,
-            "led_tube_01": True,
-            "mixer_grinder_01": False,
-            "refrigerator_01": True,
-            "table_fan_01": False,
-            "television_01": False,
-            "washing_machine_01": False,
-        },
+        "household_peak": False,
+        "expects_grid_peak": False,
+        "current": NORMAL_CURRENT,
+        "wanted": {k: bool(v) for k, v in NORMAL_CURRENT.items()},
     },
-    "peak": {
+    "grid_peak": {
         "step_id": 56,
-        "outdoor_c": 36.8,
-        "rh_pct": 53.0,
-        "solar_wm2": 780.0,
-        "wind_ms": 1.8,
-        "grid_percentile": 0.93,
-        "grid_peak_severity": 0.67,
+        **MIDDAY_GRID_PEAK_CONTEXT,
         "month_to_date_kwh": 96.9,
         "sanctioned_kw": 1.0,
         "indoor_c": 31.4,
@@ -271,37 +291,53 @@ SCENARIOS = {
         "tariff_inr_kwh": 4.50,
         "battery_soc": 0.78,
         "background_kw": 0.084,
-        # Peak baseline: every device starts ON so the RL model and peak
-        # safety overlay have loads to evaluate and shed. This is the input
-        # state snapshot; physical GPIO outputs follow the resulting decisions.
-        "current": {
-            "air_conditioner_01": 1,
-            "ceiling_fan_01": 1,
-            "ev_charger_01": 1,
-            "led_bulb_01": 1,
-            "led_tube_01": 1,
-            "mixer_grinder_01": 1,
-            "refrigerator_01": 1,
-            "table_fan_01": 1,
-            "television_01": 1,
-            "washing_machine_01": 1,
-        },
-        # During a grid peak, the five flexible loads are not requested.
-        # The peak overlay can therefore shed them; protected loads remain wanted.
-        "wanted": {
-            "air_conditioner_01": False,
-            "ceiling_fan_01": True,
-            "ev_charger_01": False,
-            "led_bulb_01": True,
-            "led_tube_01": True,
-            "mixer_grinder_01": False,
-            "refrigerator_01": True,
-            "table_fan_01": True,
-            "television_01": False,
-            "washing_machine_01": False,
-        },
+        "household_peak": False,
+        "expects_grid_peak": True,
+        "current": ALL_ON,
+        "wanted": {k: True for k in ALL_ON},
+    },
+    "household_peak": {
+        # 19:00 - the measured household peak; grid severity is 0 after 18:00.
+        "step_id": 76,
+        "outdoor_c": 31.0,
+        "rh_pct": 65.0,
+        "solar_wm2": 0.0,
+        "wind_ms": 1.5,
+        "grid_percentile": 0.30,
+        "grid_peak_severity": 0.0,
+        "month_to_date_kwh": 97.3,
+        "sanctioned_kw": 1.0,
+        "indoor_c": 30.5,
+        "occupancy_fraction": 1.0,
+        "attention": True,
+        "tariff_inr_kwh": 4.50,
+        "battery_soc": 0.60,
+        "background_kw": 0.084,
+        "household_peak": True,
+        "expects_grid_peak": False,
+        "current": ALL_ON,
+        "wanted": {k: True for k in ALL_ON},
+    },
+    "grid_and_household_peak": {
+        "step_id": 64,
+        **MIDDAY_GRID_PEAK_CONTEXT,
+        "month_to_date_kwh": 97.1,
+        "sanctioned_kw": 1.0,
+        "indoor_c": 31.8,
+        "occupancy_fraction": 1.0,
+        "attention": True,
+        "tariff_inr_kwh": 4.50,
+        "battery_soc": 0.70,
+        "background_kw": 0.084,
+        "household_peak": True,
+        "expects_grid_peak": True,
+        "current": ALL_ON,
+        "wanted": {k: True for k in ALL_ON},
     },
 }
+
+# Older commands used "peak" for the grid-peak scenario.
+SCENARIOS["peak"] = SCENARIOS["grid_peak"]
 
 
 def device_vector(appliance_id, current_on, wanted):
@@ -422,6 +458,10 @@ def build_mock_home_state(scenario_name):
         "marginal_tariff_inr_kwh": float(cfg["tariff_inr_kwh"]),
         "month_to_date_kwh": float(cfg["month_to_date_kwh"]),
         "grid_peak_severity": float(cfg["grid_peak_severity"]),
+        # This house's own peak. The Pi sheds luxury loads in this house
+        # while it is true, independent of any grid event.
+        "household_peak": bool(cfg["household_peak"]),
+        "expects_grid_peak": bool(cfg["expects_grid_peak"]),
         "operating_mode": "grid_import",
         "battery_state_of_charge": float(cfg["battery_soc"]),
         "grid_absent": False,
@@ -488,6 +528,9 @@ def publish(payload):
 
     print(f"✅ Published 10-device mock HomeState → {STATE_TOPIC}")
     print(f"   scenario: {payload['mock_scenario']}")
+    print(f"   household peak: {payload['household_peak']}")
+    if payload["expects_grid_peak"]:
+        print("   ⚠️ Declare the grid peak from the dashboard's Grid Controller")
     print(f"   features: {len(payload['state_vector'])}")
     print("   slots:")
     for app in payload["appliances"]:
@@ -499,7 +542,7 @@ def main():
     parser.add_argument(
         "--scenario",
         choices=sorted(SCENARIOS),
-        default="peak",
+        default="normal",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--print-only", action="store_true")

@@ -54,6 +54,18 @@ describe('peak ledger', () => {
     });
   });
 
+  it('bills and credits a household-only peak like a grid peak', () => {
+    const ledger = run(
+      msg('household'),
+      msg('household', ['air_conditioner_01']),
+      msg('cancel', ['air_conditioner_01']),
+    );
+    expect(ledgerCounts(ledger, '2026-10')).toEqual({
+      optedOutEvents: 1, participatedEvents: 1,
+    });
+    expect(warningState(msg('household')).phase).toBe('household');
+  });
+
   it('scopes counts to the billing month', () => {
     const ledger = run(msg('warning', ['ev_charger_01'], '2026-09-30T12:00:00+05:30'));
     expect(ledgerCounts(ledger, '2026-10').optedOutEvents).toBe(0);
