@@ -286,8 +286,10 @@ SCENARIOS = {
             "television_01": 1,
             "washing_machine_01": 1,
         },
+        # During a grid peak, the five flexible loads are not requested.
+        # The peak overlay can therefore shed them; protected loads remain wanted.
         "wanted": {
-            "air_conditioner_01": True,
+            "air_conditioner_01": False,
             "ceiling_fan_01": True,
             "ev_charger_01": False,
             "led_bulb_01": True,
@@ -295,8 +297,8 @@ SCENARIOS = {
             "mixer_grinder_01": False,
             "refrigerator_01": True,
             "table_fan_01": True,
-            "television_01": True,
-            "washing_machine_01": True,
+            "television_01": False,
+            "washing_machine_01": False,
         },
     },
 }
