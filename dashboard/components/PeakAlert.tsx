@@ -9,6 +9,12 @@
  * LATENCY between the notice appearing and the tap is the graded signal. So it
  * is timed from the moment the notice renders, not from the click.
  *
+ * Two phases, both owned by the Pi (home/<house>/grid/warning):
+ *
+ *   warning - the countdown to shedding. The deadline comes from the Pi, so a
+ *             reload or a second screen shows the same time left.
+ *   active  - flexible loads not kept on are paused and locked out.
+ *
  * Two honesty rules:
  *
  *   The override is a REQUEST, never a command. The Pi's shield decides and may
@@ -22,38 +28,46 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApplianceState } from '@/lib/contracts';
 import { PROPOSED_OPT_OUT_INR_PER_EVENT } from '@/lib/billing';
+import { SurchargeConfirm } from './SurchargeConfirm';
 
 interface Props {
-  /** Minutes of notice. Set by the technical role, bounded 5-15. */
-  leadTimeMinutes: number;
-  /** Loads that will pause when the event starts. */
+  phase: 'warning' | 'active';
+  /** Epoch ms when shedding starts. Null when the Pi gave no deadline. */
+  shedAtMs: number | null;
+  /** Flexible loads this peak applies to. */
   affected: ApplianceState[];
+  /** Appliances the Pi has registered as kept on (billed). */
+  keptOnIds: string[];
   severity: number;
+  /** Called only after the resident accepts the surcharge. */
   onKeepOn: (applianceId: string, latencyMs: number) => void;
   onDismiss: () => void;
 }
 
+function secondsUntil(ms: number | null) {
+  return ms === null ? 0 : Math.max(0, Math.ceil((ms - Date.now()) / 1000));
+}
+
 export function PeakAlert({
-  leadTimeMinutes, affected, severity, onKeepOn, onDismiss,
+  phase, shedAtMs, affected, keptOnIds, severity, onKeepOn, onDismiss,
 }: Props) {
   const shownAt = useRef<number>(0);
-  const [secondsLeft, setSecondsLeft] = useState(leadTimeMinutes * 60);
-  const [prevLeadTime, setPrevLeadTime] = useState(leadTimeMinutes);
-  const [chosenIds, setChosenIds] = useState<string[]>([]);
-
-  if (prevLeadTime !== leadTimeMinutes) {
-    setPrevLeadTime(leadTimeMinutes);
-    setSecondsLeft(leadTimeMinutes * 60);
-  }
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [requestedIds, setRequestedIds] = useState<string[]>([]);
+  const [confirming, setConfirming] = useState<
+    { appliance: ApplianceState; latencyMs: number } | null
+  >(null);
 
   useEffect(() => {
     shownAt.current = Date.now();
-  }, [leadTimeMinutes]);
+  }, [phase]);
 
   useEffect(() => {
-    const t = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
+    const update = () => setSecondsLeft(secondsUntil(shedAtMs));
+    update();
+    const t = setInterval(update, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [shedAtMs]);
 
   // A browser notification, where the resident has allowed one. The real
   // system also sends Web Push so the phone rings with no tab open; this is
@@ -61,30 +75,42 @@ export function PeakAlert({
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
+    const minutes = Math.ceil(secondsUntil(shedAtMs) / 60);
     try {
-      new Notification('Grid peak in ' + leadTimeMinutes + ' minutes', {
-        body: 'Luxury loads will pause. Your fan, light and fridge stay on.',
-        tag: 'sharp-peak',
-      });
+      new Notification(
+        phase === 'warning' ? `Grid peak in ${minutes} minutes` : 'Grid peak started',
+        {
+          body: 'Luxury loads will pause. Your fan, light and fridge stay on.',
+          tag: 'sharp-peak',
+        },
+      );
     } catch {
       /* notification is a courtesy; never let it break the page */
     }
-  }, [leadTimeMinutes]);
+  }, [phase, shedAtMs]);
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
+  const name = (a: ApplianceState) => a.display_name ?? a.appliance_id;
 
   const handleKeep = (a: ApplianceState) => {
-    if (!chosenIds.includes(a.appliance_id)) {
-      setChosenIds((prev) => [...prev, a.appliance_id]);
-    }
     // The latency IS the preference signal. Measure it from when the resident
-    // could first have acted.
+    // could first have acted, at the tap - not after the confirm dialog.
     // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
     const start = shownAt.current || now;
-    onKeepOn(a.appliance_id, now - start);
+    setConfirming({ appliance: a, latencyMs: now - start });
   };
+
+  const confirm = () => {
+    if (!confirming) return;
+    const id = confirming.appliance.appliance_id;
+    setRequestedIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    onKeepOn(id, confirming.latencyMs);
+    setConfirming(null);
+  };
+
+  const pausing = affected.filter((a) => !keptOnIds.includes(a.appliance_id));
 
   return (
     <section
@@ -107,8 +133,10 @@ export function PeakAlert({
               </svg>
             </span>
             <div>
-              <p className="text-[15px] font-semibold" style={{ color: 'var(--navy)' }}>
-                Grid peak in {mm}:{ss}
+              <p className="text-[15px] font-semibold tabular-nums" style={{ color: 'var(--navy)' }}>
+                {phase === 'warning'
+                  ? (shedAtMs === null ? 'Grid peak starting soon' : `Grid peak in ${mm}:${ss}`)
+                  : 'Grid peak in progress'}
               </p>
               <p className="text-[12px]" style={{ color: 'var(--yellow-ink)' }}>
                 Severity {severity.toFixed(2)} · APCPDCL Guntur
@@ -117,10 +145,10 @@ export function PeakAlert({
           </div>
 
           <p className="mt-3 text-[13px] leading-relaxed" style={{ color: 'var(--navy)' }}>
-            {affected.length === 0
+            {pausing.length === 0
               ? 'Nothing of yours will pause.'
-              : <>These will pause: <strong>
-                  {affected.map((a) => a.display_name ?? a.appliance_id).join(', ')}
+              : <>{phase === 'warning' ? 'These will pause' : 'Paused and locked until the peak ends'}: <strong>
+                  {pausing.map(name).join(', ')}
                 </strong>.</>}
             {' '}Your <strong>fan, light and fridge stay on</strong> — the shield
             will not shed an essential load, and nor can the DISCOM.
@@ -140,37 +168,53 @@ export function PeakAlert({
             Keep appliances running through the event?
           </p>
           <p className="mt-0.5 text-[11px]" style={{ color: 'var(--slate)' }}>
-            About ₹{PROPOSED_OPT_OUT_INR_PER_EVENT.toFixed(2)} per device for this event.{' '}
+            ₹{PROPOSED_OPT_OUT_INR_PER_EVENT.toFixed(2)} per device for this event, added
+            only after you confirm.{' '}
             <em>Proposed tariff, not an APCPDCL charge today.</em>
           </p>
 
           <div className="mt-2.5 flex flex-wrap gap-2">
             {affected.map((a) => {
-              const isChosen = chosenIds.includes(a.appliance_id);
+              const kept = keptOnIds.includes(a.appliance_id);
+              const requested = !kept && requestedIds.includes(a.appliance_id);
               return (
                 <button
                   key={a.appliance_id}
                   type="button"
+                  disabled={kept || requested}
                   className={`btn transition-all ${
-                    isChosen
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 font-semibold'
+                    kept
+                      ? 'bg-emerald-600 text-white font-semibold'
                       : 'btn-primary'
                   }`}
                   onClick={() => handleKeep(a)}
                 >
-                  {isChosen ? `✓ Keeping ${a.display_name ?? a.appliance_id} on` : `Keep ${a.display_name ?? a.appliance_id} on`}
+                  {kept
+                    ? `✓ ${name(a)} kept on · ₹${PROPOSED_OPT_OUT_INR_PER_EVENT.toFixed(2)}`
+                    : requested
+                      ? `Requesting ${name(a)}…`
+                      : `Keep ${name(a)} on`}
                 </button>
               );
             })}
           </div>
 
-          {chosenIds.length > 0 && (
+          {requestedIds.length > 0 && (
             <p className="mt-2.5 text-[11.5px]" style={{ color: 'var(--primary-ink)' }}>
-              Requested for {chosenIds.length} {chosenIds.length === 1 ? 'device' : 'devices'}. The Pi decides — if the circuit has no power during the
-              event, it will refuse and tell you why.
+              The Pi decides — a device shows as kept on once the Pi has registered
+              it. If the circuit has no power during the event, it will refuse and
+              tell you why.
             </p>
           )}
         </div>
+      )}
+
+      {confirming && (
+        <SurchargeConfirm
+          applianceName={name(confirming.appliance)}
+          onConfirm={confirm}
+          onCancel={() => setConfirming(null)}
+        />
       )}
     </section>
   );

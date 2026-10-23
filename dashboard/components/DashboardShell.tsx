@@ -76,6 +76,10 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
     history,
     piHealth,
     runtimeHealth,
+    gridWarning,
+    optedOutEvents,
+    participatedEvents,
+    confirmKeepOn,
   } = useHomeState();
 
   if (!homeState) {
@@ -201,6 +205,10 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
                 onClearAck={clearLastAck}
                 initialTab={initialTab as FeatureTab}
                 pendingAppliances={pendingAppliances}
+                gridWarning={gridWarning}
+                optedOutEvents={optedOutEvents}
+                participatedEvents={participatedEvents}
+                onConfirmKeepOn={confirmKeepOn}
               />
             )}
 

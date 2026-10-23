@@ -12,9 +12,39 @@ import {
 } from './contracts';
 import {
   connectFeed,
+  GridWarningPayload,
   PiAck,
   RuntimeHealth,
 } from './mqtt';
+import {
+  applyWarning,
+  GridWarningState,
+  ledgerCounts,
+  NO_GRID_WARNING,
+  PeakLedger,
+  warningState,
+} from './peakLedger';
+
+// Per-browser record of peak events seen. A convenience so the bill survives
+// a reload; the Pi's retained warning remains the source of truth.
+const PEAK_LEDGER_KEY = 'sharp.peakLedger.v1';
+
+function loadLedger(): PeakLedger {
+  try {
+    const raw = window.localStorage.getItem(PEAK_LEDGER_KEY);
+    return raw ? (JSON.parse(raw) as PeakLedger) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLedger(ledger: PeakLedger) {
+  try {
+    window.localStorage.setItem(PEAK_LEDGER_KEY, JSON.stringify(ledger));
+  } catch {
+    /* storage is a convenience only */
+  }
+}
 
 export interface LiveLoadPoint {
   time: string;
@@ -108,6 +138,17 @@ export interface UseHomeStateReturn {
   history: LiveLoadPoint[];
   piHealth: RuntimeHealth | null;
   runtimeHealth: RuntimeHealth | null;
+  /** Peak phase from the Pi: 10-minute warning, then active shed. */
+  gridWarning: GridWarningState;
+  /** Device-events kept on through a peak this month (surcharged). */
+  optedOutEvents: number;
+  /** Peak events this month ridden through with a load paused (credited). */
+  participatedEvents: number;
+  /**
+   * Keep a flexible load on through the peak. Call only after the resident
+   * has accepted the surcharge; the Pi registers the opt-out on receipt.
+   */
+  confirmKeepOn: (applianceId: string) => Promise<CommandAck>;
 }
 
 function peakFromState(state: HomeState): PeakEvent {
@@ -158,6 +199,24 @@ export function useHomeState(): UseHomeStateReturn {
   const [piHealth, setPiHealth] = useState<RuntimeHealth | null>(null);
   const [runtimeHealth, setRuntimeHealth] =
     useState<RuntimeHealth | null>(null);
+  const [gridWarning, setGridWarning] =
+    useState<GridWarningState>(NO_GRID_WARNING);
+  const [peakLedger, setPeakLedger] = useState<PeakLedger>({});
+
+  useEffect(() => {
+    // Read after mount so server and first client render agree.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPeakLedger((prev) => ({ ...loadLedger(), ...prev }));
+  }, []);
+
+  const handleGridWarning = useCallback((w: GridWarningPayload) => {
+    setGridWarning(warningState(w));
+    setPeakLedger((prev) => {
+      const next = applyWarning(prev, w);
+      if (next !== prev) saveLedger(next);
+      return next;
+    });
+  }, []);
 
   const handleAckRef = useRef<((ack: PiAck) => void) | null>(null);
 
@@ -240,10 +299,11 @@ export function useHomeState(): UseHomeStateReturn {
       onAck: (ack) => handleAckRef.current?.(ack),
       onPiHealth: setPiHealth,
       onRuntimeHealth: setRuntimeHealth,
+      onGridWarning: handleGridWarning,
     });
 
     return disconnect;
-  }, []);
+  }, [handleGridWarning]);
 
   const triggerOverride = useCallback(
     async (
@@ -379,6 +439,13 @@ export function useHomeState(): UseHomeStateReturn {
 
   const clearLastAck = useCallback(() => setLastAck(null), []);
 
+  const confirmKeepOn = useCallback(
+    (applianceId: string) => triggerOverride(applianceId, 1 as ActionLevel),
+    [triggerOverride],
+  );
+
+  const { optedOutEvents, participatedEvents } = ledgerCounts(peakLedger);
+
   // Weather is authoritative only after it returns through the MQTT runtime
   // stream. Do not mutate the displayed HomeState optimistically.
   const setWeather = useCallback((weather: WeatherData) => {
@@ -402,5 +469,9 @@ export function useHomeState(): UseHomeStateReturn {
     history,
     piHealth,
     runtimeHealth,
+    gridWarning,
+    optedOutEvents,
+    participatedEvents,
+    confirmKeepOn,
   };
 }

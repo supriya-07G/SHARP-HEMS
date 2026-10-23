@@ -28,7 +28,7 @@ function rupees(n: number) {
 }
 
 export function BillPanel({
-  monthToDateKwh, sanctionedLoadKw, participatedEvents = 3, optedOutEvents = 1,
+  monthToDateKwh, sanctionedLoadKw, participatedEvents = 0, optedOutEvents = 0,
 }: Props) {
   const [open, setOpen] = useState(false);
 

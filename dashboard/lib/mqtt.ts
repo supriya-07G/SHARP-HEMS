@@ -18,6 +18,7 @@ const INTENT_TOPIC = `home/${HOUSE}/intent`;
 const ACK_TOPIC = `home/${HOUSE}/actuator/+/ack`;
 const PI_HEALTH_TOPIC = `home/${HOUSE}/health/pi`;
 const RUNTIME_HEALTH_TOPIC = `home/${HOUSE}/health/runtime`;
+const GRID_WARNING_TOPIC = `home/${HOUSE}/grid/warning`;
 
 function isHomeState(value: unknown): value is HomeState {
   if (!value || typeof value !== 'object') return false;
@@ -69,11 +70,41 @@ export interface RuntimeHealth {
   measured_power_available?: boolean;
 }
 
+/**
+ * Peak phase published (retained) by pi_agent.py on home/<house>/grid/warning.
+ * The Pi owns the countdown and the opt-out list; the dashboard only shows it.
+ */
+export interface GridWarningPayload {
+  schema_version: 'sharp_grid_warning_v1';
+  action: 'warning' | 'active' | 'cancel';
+  house_id: string;
+  severity: number;
+  /** IST ISO time the warning began. Identifies the peak event. */
+  warning_started_at: string | null;
+  /** IST ISO time unrequested flexible loads are shed. */
+  shed_at: string | null;
+  lead_time_seconds: number;
+  affected_loads: string[];
+  /** Appliances the Pi registered as kept on (billed) for this event. */
+  opted_out: string[];
+  timestamp_ist: string;
+}
+
+function isGridWarning(value: unknown): value is GridWarningPayload {
+  if (!value || typeof value !== 'object') return false;
+  const w = value as Partial<GridWarningPayload>;
+  return (
+    w.schema_version === 'sharp_grid_warning_v1' &&
+    (w.action === 'warning' || w.action === 'active' || w.action === 'cancel')
+  );
+}
+
 export interface FeedHandlers {
   onFeed: (feed: Feed) => void;
   onAck?: (ack: PiAck) => void;
   onPiHealth?: (health: RuntimeHealth) => void;
   onRuntimeHealth?: (health: RuntimeHealth) => void;
+  onGridWarning?: (warning: GridWarningPayload) => void;
 }
 
 export function connectFeed({
@@ -81,6 +112,7 @@ export function connectFeed({
   onAck,
   onPiHealth,
   onRuntimeHealth,
+  onGridWarning,
 }: FeedHandlers): () => void {
   let lastRuntimeMessage = 0;
   let client: MqttClient | null = null;
@@ -133,6 +165,7 @@ export function connectFeed({
       ACK_TOPIC,
       PI_HEALTH_TOPIC,
       RUNTIME_HEALTH_TOPIC,
+      GRID_WARNING_TOPIC,
     ];
 
     client?.subscribe(topics, { qos: 1 }, (error) => {
@@ -171,6 +204,15 @@ export function connectFeed({
 
         lastRuntimeMessage = Date.now();
         emit('live', parsed, null);
+        return;
+      }
+
+      if (topic === GRID_WARNING_TOPIC) {
+        if (!isGridWarning(parsed)) {
+          console.error('Ignoring invalid grid warning payload:', parsed);
+          return;
+        }
+        onGridWarning?.(parsed);
         return;
       }
 

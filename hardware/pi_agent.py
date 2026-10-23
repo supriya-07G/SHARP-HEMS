@@ -91,6 +91,15 @@ STATE_TOPIC = f"home/{HOUSE_ID}/state"
 INTENT_TOPIC = f"home/{HOUSE_ID}/intent"
 GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
+GRID_WARNING_TOPIC = f"home/{HOUSE_ID}/grid/warning"
+
+PEAK_WARNING_SECONDS = int(
+    os.getenv("PEAK_WARNING_SECONDS", "600")
+)
+
+# Proposed per-device opt-out charge, mirrored from the dashboard's
+# PROPOSED_OPT_OUT_INR_PER_EVENT. Not an APCPDCL tariff today.
+PEAK_SURCHARGE_INR = 12.40
 
 
 # ============================================================
@@ -219,6 +228,14 @@ latest_weather_received_mono = 0.0
 mqtt_online = False
 
 state_lock = threading.RLock()
+
+last_rl_state_payload = None
+peak_phase = "NONE"           # NONE, WARNING, ACTIVE
+peak_warning_timer = None
+peak_opted_out = set()
+peak_warning_started_at = None   # IST ISO string
+peak_shed_at = None              # IST ISO string
+peak_shed_at_mono = 0.0          # monotonic deadline for the OLED countdown
 
 
 # ============================================================
@@ -466,8 +483,60 @@ def command_is_expired(command):
 # GRID EVENT
 # ============================================================
 
-def handle_grid_event(payload_text):
-    global active_grid_event
+def publish_grid_warning(client, action):
+    """Publish the current peak phase so the bridge/dashboard can follow it.
+
+    Retained, so a dashboard that connects mid-warning still sees the
+    countdown deadline and who has opted out.
+    """
+    with state_lock:
+        notice = {
+            "schema_version": "sharp_grid_warning_v1",
+            "action": action,
+            "house_id": HOUSE_ID,
+            "severity": effective_grid_severity() or 0.0,
+            "warning_started_at": peak_warning_started_at,
+            "shed_at": peak_shed_at,
+            "lead_time_seconds": PEAK_WARNING_SECONDS,
+            "affected_loads": sorted(PEAK_FLEXIBLE_LOADS),
+            "opted_out": sorted(peak_opted_out),
+            "timestamp_ist": timestamp_ist(),
+        }
+
+    client.publish(
+        GRID_WARNING_TOPIC,
+        json.dumps(notice),
+        qos=1,
+        retain=True,
+    )
+
+
+def _end_peak(client):
+    """Return to NONE and tell the dashboard, if a peak phase was running."""
+    global peak_phase, peak_warning_timer
+    global peak_warning_started_at, peak_shed_at
+
+    with state_lock:
+        was_running = peak_phase != "NONE"
+        peak_phase = "NONE"
+        timer = peak_warning_timer
+        peak_warning_timer = None
+
+    if timer is not None:
+        timer.cancel()
+
+    if was_running:
+        publish_grid_warning(client, "cancel")
+
+    with state_lock:
+        peak_opted_out.clear()
+        peak_warning_started_at = None
+        peak_shed_at = None
+
+
+def handle_grid_event(client, payload_text):
+    global active_grid_event, peak_phase, peak_warning_timer
+    global peak_warning_started_at, peak_shed_at, peak_shed_at_mono
 
     try:
         event = json.loads(payload_text)
@@ -480,7 +549,9 @@ def handle_grid_event(payload_text):
     if action == "cancel":
         with state_lock:
             active_grid_event = None
+        _end_peak(client)
         print("🟢 Grid event cancelled")
+        _replay_rl(client)
         return
 
     if action != "declare":
@@ -500,7 +571,78 @@ def handle_grid_event(payload_text):
     with state_lock:
         active_grid_event = event
 
-    print(f"🔴 Grid event active → severity {severity:.2f}")
+    if severity < GRID_PEAK_POLICY_THRESHOLD:
+        _end_peak(client)
+        print(f"🔴 Grid event → severity {severity:.2f}")
+        _replay_rl(client)
+        return
+
+    with state_lock:
+        already_running = peak_phase != "NONE"
+        if not already_running:
+            started = datetime.now(IST)
+            peak_phase = "WARNING"
+            peak_opted_out.clear()
+            peak_warning_started_at = started.isoformat()
+            peak_shed_at = (
+                started + timedelta(seconds=PEAK_WARNING_SECONDS)
+            ).isoformat()
+            peak_shed_at_mono = time.monotonic() + PEAK_WARNING_SECONDS
+
+    if already_running:
+        # A severity update must not restart the resident's countdown.
+        print(
+            f"🔴 Grid severity updated → {severity:.2f} "
+            f"(peak phase {peak_phase})"
+        )
+        _replay_rl(client)
+        return
+
+    publish_grid_warning(client, "warning")
+    print(
+        f"⚠️ PEAK WARNING → {PEAK_WARNING_SECONDS}s "
+        "before shed begins"
+    )
+
+    timer = threading.Timer(
+        PEAK_WARNING_SECONDS,
+        _activate_peak_shed,
+        args=[client],
+    )
+    timer.daemon = True
+    with state_lock:
+        peak_warning_timer = timer
+    timer.start()
+
+    # Unrequested flexible loads are still shed now by the grid-peak overlay.
+    _replay_rl(client)
+
+
+def _activate_peak_shed(client):
+    """Called after warning period. Transition to ACTIVE and shed loads."""
+    global peak_phase, peak_warning_timer
+
+    with state_lock:
+        if peak_phase != "WARNING":
+            # Cancelled while the timer was firing.
+            return
+        peak_phase = "ACTIVE"
+        peak_warning_timer = None
+
+    print("🔴 PEAK ACTIVE → Shedding unpaid flexible loads!")
+    publish_grid_warning(client, "active")
+    _replay_rl(client)
+
+
+def _replay_rl(client):
+    """Re-evaluate RL using the last cached HomeState."""
+    if not RL_ENABLED or rl_policy is None:
+        return
+    if last_rl_state_payload is None:
+        print("⏭️ No cached state for RL re-evaluation")
+        return
+    print("🔄 Re-evaluating RL with updated grid state...")
+    handle_rl_state(client, last_rl_state_payload)
 
 
 def effective_grid_severity():
@@ -901,21 +1043,47 @@ def oled_normal_page(page):
     ]
 
 
+def oled_load_kw():
+    """GPIO-state power estimate; no meter is fitted on the rig."""
+    with state_lock:
+        payload = last_rl_state_payload
+    if payload is None:
+        return None
+    try:
+        return float(json.loads(payload).get("aggregate_power_kw"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def oled_peak_page():
     severity = effective_grid_severity()
-    protected_count = sum(
-        1 for device in DEVICES.values()
-        if device["necessity"]
-    )
+
+    with state_lock:
+        phase = peak_phase
+        seconds_left = max(0, int(peak_shed_at_mono - time.monotonic()))
+        opted = len(peak_opted_out)
+
+    if phase == "WARNING":
+        status = "SHARP HEMS  PEAK WARN"
+        timer_line = f"Shed in {seconds_left // 60:02d}:{seconds_left % 60:02d}"
+    elif phase == "ACTIVE":
+        status = "SHARP HEMS  PEAK ACTV"
+        timer_line = "PEAK ACTIVE (SHED)"
+    else:
+        status = "SHARP HEMS  PEAK"
+        timer_line = "Unrequested loads off"
+
+    load_kw = oled_load_kw()
 
     return [
-        "SHARP HEMS",
-        "GRID PEAK!",
+        status,
+        timer_line,
         f"Severity {severity:.2f}" if severity is not None else "Severity --",
-        f"AC       {level_text('air_conditioner_01')}",
-        f"EV       {level_text('ev_charger_01')}",
-        f"Washer   {level_text('washing_machine_01')}",
-        f"Protected: {protected_count}",
+        f"Load {load_kw:.2f} kW (est)" if load_kw is not None else "Load -- kW",
+        # SSD1306 default font has no rupee glyph.
+        f"Kept on: {opted}  Rs {opted * PEAK_SURCHARGE_INR:.2f}",
+        f"AC {level_text('air_conditioner_01')} EV {level_text('ev_charger_01')}",
+        f"Washer {level_text('washing_machine_01')} TV {level_text('television_01')}",
     ]
 
 
@@ -956,7 +1124,10 @@ def oled_loop():
 
         severity = effective_grid_severity()
 
-        if severity is not None and severity >= 0.4:
+        with state_lock:
+            phase = peak_phase
+
+        if phase != "NONE" or (severity is not None and severity >= 0.4):
             oled_draw_lines(oled_peak_page())
             oled_stop_event.wait(0.5)
             continue
@@ -1190,6 +1361,25 @@ def handle_override(client, payload):
             f"{MANUAL_OVERRIDE_HOLD_SECONDS}s"
         )
 
+        # Track peak billing opt-out
+        if (
+            appliance_id in PEAK_FLEXIBLE_LOADS
+            and requested_level != 0
+        ):
+            with state_lock:
+                phase = peak_phase
+                newly_opted = (
+                    phase in ("WARNING", "ACTIVE")
+                    and appliance_id not in peak_opted_out
+                )
+                if newly_opted:
+                    peak_opted_out.add(appliance_id)
+
+            if newly_opted:
+                print(f"💳 Peak billing opt-out: {appliance_id}")
+                # Republish so the bridge unlocks this appliance.
+                publish_grid_warning(client, phase.lower())
+
     command = {
         "schema_version": "sharp_cmd_v2",
         "command_id": override.get(
@@ -1211,7 +1401,7 @@ def handle_override(client, payload):
 # ============================================================
 
 def handle_rl_state(client, payload_text):
-    global rl_policy
+    global rl_policy, last_rl_state_payload
 
     if not RL_ENABLED:
         return
@@ -1225,6 +1415,9 @@ def handle_rl_state(client, payload_text):
     except json.JSONDecodeError:
         print("❌ Invalid HomeState JSON")
         return
+
+    # Cache for re-evaluation when grid events change
+    last_rl_state_payload = payload_text
 
     raw_state = payload.get("state_vector")
 
@@ -1397,6 +1590,31 @@ def handle_rl_state(client, payload_text):
             f"{grid_severity_for_policy:.2f}; overrides: {grid_peak_overrides}"
         )
 
+    # During ACTIVE peak: force shed ALL non-opted-out flexible loads
+    with state_lock:
+        current_phase = peak_phase
+
+    if current_phase == "ACTIVE":
+        active_overrides = {}
+        with state_lock:
+            opted = set(peak_opted_out)
+        for slot, appliance in slot_to_appliance.items():
+            appliance_id = appliance.get("appliance_id")
+            if appliance_id not in PEAK_FLEXIBLE_LOADS:
+                continue
+            if appliance_id in opted:
+                continue
+            if int(actions[slot]) != 0:
+                actions[slot] = 0
+                active_overrides[appliance_id] = (
+                    "peak_active_forced_shed"
+                )
+        if active_overrides:
+            grid_peak_overrides.update(active_overrides)
+            print(
+                f"🔴 PEAK ACTIVE SHED → {active_overrides}"
+            )
+
     latency_ms = (time.perf_counter() - started) * 1000
     decision_id = str(uuid.uuid4())
 
@@ -1562,7 +1780,7 @@ def on_message(client, userdata, msg):
         return
 
     if msg.topic == GRID_EVENT_TOPIC:
-        handle_grid_event(payload)
+        handle_grid_event(client, payload)
         return
 
     if msg.topic == WEATHER_TOPIC:

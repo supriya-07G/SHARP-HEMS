@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   HomeState,
   PeakEvent,
@@ -14,9 +14,11 @@ import { Panel4Appliances } from './Panel4Appliances';
 import { MetricsPanel } from './MetricsPanel';
 import { BillPanel } from './BillPanel';
 import { PeakAlert } from './PeakAlert';
+import { SurchargeConfirm } from './SurchargeConfirm';
 import { TopQuickNav, FeatureTab } from './TopQuickNav';
 import { WeatherCard } from './WeatherCard';
 import type { LiveLoadPoint } from '@/lib/useHomeState';
+import type { GridWarningState } from '@/lib/peakLedger';
 
 interface ResidentViewProps {
   homeState: HomeState;
@@ -30,6 +32,11 @@ interface ResidentViewProps {
   onClearAck: () => void;
   initialTab?: FeatureTab;
   pendingAppliances: Set<string>;
+  gridWarning: GridWarningState;
+  optedOutEvents: number;
+  participatedEvents: number;
+  /** Keep a flexible load on through the peak, after surcharge consent. */
+  onConfirmKeepOn: (applianceId: string) => Promise<CommandAck>;
 }
 
 export function ResidentView({
@@ -41,15 +48,87 @@ export function ResidentView({
   onClearAck,
   initialTab = 'overview',
   pendingAppliances,
+  gridWarning,
+  optedOutEvents,
+  participatedEvents,
+  onConfirmKeepOn,
 }: ResidentViewProps) {
   const [activeTab, setActiveTab] = useState<FeatureTab>(initialTab);
   const [alertDismissed, setAlertDismissed] = useState(false);
-  const [prevEventId, setPrevEventId] = useState(peakEvent.event_id);
+  // A new event, or the move from warning to active, shows the notice again.
+  const alertKey = `${gridWarning.eventKey}:${gridWarning.phase}`;
+  const [prevAlertKey, setPrevAlertKey] = useState(alertKey);
 
-  if (prevEventId !== peakEvent.event_id) {
-    setPrevEventId(peakEvent.event_id);
+  if (prevAlertKey !== alertKey) {
+    setPrevAlertKey(alertKey);
     setAlertDismissed(false);
   }
+
+  const peakRunning = gridWarning.phase !== 'none';
+  const peakAffected = homeState.appliances.filter((a) =>
+    gridWarning.affectedLoads.includes(a.appliance_id),
+  );
+
+  // Turning a flexible load ON during a peak is billed, so it needs the same
+  // consent as "Keep on" in the notice. Switching OFF never does.
+  const [surchargeFor, setSurchargeFor] = useState<string | null>(null);
+  const surchargeResolve = useRef<((ack: CommandAck) => void) | null>(null);
+
+  const needsSurcharge = (applianceId: string, level: ActionLevel) => {
+    if (level === 0 || gridWarning.optedOut.includes(applianceId)) return false;
+    const app = homeState.appliances.find((a) => a.appliance_id === applianceId);
+    return (
+      (peakRunning && gridWarning.affectedLoads.includes(applianceId)) ||
+      Boolean(app?.peak_locked_out)
+    );
+  };
+
+  const declinedAck = (applianceId: string): CommandAck => {
+    const app = homeState.appliances.find((a) => a.appliance_id === applianceId);
+    return {
+      command_id: `surcharge-declined-${Date.now()}`,
+      appliance_id: applianceId,
+      accepted: false,
+      applied_level: app?.level ?? 0,
+      rejected_reason: 'peak_lockout',
+      gpio_state: app?.gpio_state ?? 0,
+      measured_w: null,
+      verification: 'NO_METER',
+      acked_at: new Date().toISOString(),
+      latency_ms: 0,
+      delivery_stage: 'local',
+    };
+  };
+
+  const guardedOverride = (
+    applianceId: string,
+    level: ActionLevel,
+  ): Promise<CommandAck> => {
+    if (!needsSurcharge(applianceId, level)) return onOverride(applianceId, level);
+    surchargeResolve.current?.(declinedAck(applianceId));
+    setSurchargeFor(applianceId);
+    return new Promise((resolve) => {
+      surchargeResolve.current = resolve;
+    });
+  };
+
+  const settleSurcharge = (confirmed: boolean) => {
+    const id = surchargeFor;
+    const resolve = surchargeResolve.current;
+    surchargeResolve.current = null;
+    setSurchargeFor(null);
+    if (!id || !resolve) return;
+    if (confirmed) {
+      void onConfirmKeepOn(id).then(resolve);
+    } else {
+      resolve(declinedAck(id));
+    }
+  };
+
+  const surchargeName = surchargeFor
+    ? (homeState.appliances.find((a) => a.appliance_id === surchargeFor)?.display_name
+       ?? surchargeFor)
+    : '';
 
   const protectedCount = homeState.appliances.filter(
     (a) => a.is_necessity && a.occupant_wants
@@ -66,18 +145,26 @@ export function ResidentView({
       />
 
       {/* Grid Peak Notice alert stays visible on all tabs if active */}
-      {peakEvent.is_active && !alertDismissed && (
+      {gridWarning.phase !== 'none' && !alertDismissed && (
         <PeakAlert
-          leadTimeMinutes={15}
-          severity={homeState.grid_peak_severity}
-          affected={homeState.appliances.filter(
-            (a) => !a.is_necessity && a.level === 0
-          )}
+          phase={gridWarning.phase}
+          shedAtMs={gridWarning.shedAtMs}
+          severity={gridWarning.severity}
+          affected={peakAffected}
+          keptOnIds={gridWarning.optedOut}
           onKeepOn={(applianceId, latencyMs) => {
-            void onOverride(applianceId, 1 as ActionLevel);
+            void onConfirmKeepOn(applianceId);
             void latencyMs;
           }}
           onDismiss={() => setAlertDismissed(true)}
+        />
+      )}
+
+      {surchargeFor && (
+        <SurchargeConfirm
+          applianceName={surchargeName}
+          onConfirm={() => settleSurcharge(true)}
+          onCancel={() => settleSurcharge(false)}
         />
       )}
 
@@ -195,7 +282,7 @@ export function ResidentView({
 
           <Panel4Appliances
             appliances={homeState.appliances}
-            onOverride={onOverride}
+            onOverride={guardedOverride}
             lastAck={lastAck}
             onClearAck={onClearAck}
             pendingAppliances={pendingAppliances}
@@ -220,6 +307,8 @@ export function ResidentView({
           <BillPanel
             monthToDateKwh={homeState.month_to_date_kwh}
             sanctionedLoadKw={homeState.sanctioned_load_kw}
+            optedOutEvents={optedOutEvents}
+            participatedEvents={participatedEvents}
           />
         </div>
       )}

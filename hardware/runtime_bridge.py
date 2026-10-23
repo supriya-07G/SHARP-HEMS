@@ -50,6 +50,15 @@ PI_HEALTH_TOPIC = f"home/{HOUSE_ID}/health/pi"
 BRIDGE_HEALTH_TOPIC = f"home/{HOUSE_ID}/health/runtime"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
 GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
+GRID_WARNING_TOPIC = f"home/{HOUSE_ID}/grid/warning"
+
+PEAK_FLEXIBLE_IDS = {
+    "air_conditioner_01",
+    "ev_charger_01",
+    "washing_machine_01",
+    "television_01",
+    "mixer_grinder_01",
+}
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -132,6 +141,7 @@ latest_input_state: dict | None = None
 latest_weather: dict | None = None
 latest_pi_health: dict | None = None
 latest_grid_event: dict | None = None
+latest_grid_warning: dict | None = None
 last_state_received_mono = 0.0
 
 # ACK/readback state. GPIO readback confirms only the Pi pin level,
@@ -220,6 +230,21 @@ def build_runtime_state() -> dict | None:
             )
             power_estimate = None
 
+        # peak_locked_out: True during active grid peak for flexible loads,
+        # unless the appliance was opted out via billing confirmation.
+        peak_active = (
+            latest_grid_warning is not None
+            and latest_grid_warning.get("action") == "active"
+        )
+        opted_out_ids = set(
+            latest_grid_warning.get("opted_out", [])
+        ) if latest_grid_warning else set()
+        peak_locked = (
+            peak_active
+            and appliance_id in PEAK_FLEXIBLE_IDS
+            and appliance_id not in opted_out_ids
+        )
+
         appliances.append(
             {
                 "appliance_id": appliance_id,
@@ -231,7 +256,7 @@ def build_runtime_state() -> dict | None:
                 "slot": source.get("slot"),
                 "level": level,
                 "occupant_wants": bool(source.get("occupant_wants", False)),
-                "peak_locked_out": bool(source.get("peak_locked_out", False)),
+                "peak_locked_out": peak_locked,
                 "power_15min_mean_w": power_estimate,
                 "measured_w": None,
                 "gpio_state": gpio_state,
@@ -362,6 +387,7 @@ def on_connect(client, userdata, flags, reason_code, properties):
             (PI_HEALTH_TOPIC, 0),
             (WEATHER_TOPIC, 0),
             (GRID_EVENT_TOPIC, 1),
+            (GRID_WARNING_TOPIC, 1),
         ]
     )
 
@@ -373,6 +399,7 @@ def on_message(client, userdata, msg):
     global latest_weather
     global latest_pi_health
     global latest_grid_event
+    global latest_grid_warning
     global last_state_received_mono
 
     payload = json_payload(msg)
@@ -401,6 +428,11 @@ def on_message(client, userdata, msg):
 
     if msg.topic == GRID_EVENT_TOPIC:
         latest_grid_event = payload
+        publish_runtime(client)
+        return
+
+    if msg.topic == GRID_WARNING_TOPIC:
+        latest_grid_warning = payload
         publish_runtime(client)
         return
 
@@ -487,6 +519,7 @@ def main():
     print(f"GPIO ACKs   : {ACK_SUB}")
     print(f"Weather     : {WEATHER_TOPIC}")
     print(f"Grid event  : {GRID_EVENT_TOPIC}")
+    print(f"Grid warning: {GRID_WARNING_TOPIC}")
     print("Power       : GPIO-confirmed estimate; measured_w remains null")
     print("=" * 68)
 
