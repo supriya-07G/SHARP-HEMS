@@ -53,8 +53,14 @@ PEAK_WARNING_SECONDS=40
 ```
 
 Optional: `GRID_PEAK_POLICY_THRESHOLD` (default `0.60`): a declared severity
-below this is not a grid peak. `MANUAL_OVERRIDE_HOLD_SECONDS` (default `900`) is
-how long a resident's switch overrides the RL loop.
+below this is not a grid peak.
+
+There is **no manual hold**. The RL loop decides for all ten appliances on
+every state it receives. A resident's switch is remembered as their choice and
+the policy applies it on every decision: with no peak it stands; during a peak
+an unpaid luxury load is still shed. Publishing a *different* scenario resets
+the house to that scenario's baseline. (`MANUAL_OVERRIDE_HOLD_SECONDS` is no
+longer read.)
 
 The model is read from `models/sharp_rl_model.pkl` unless `PKL_MODEL_PATH` says
 otherwise. The RL loop does nothing without it.
@@ -158,9 +164,9 @@ washer, mixer and TV go OFF. Essentials stay ON. The dashboard shows
 Pi logs `💳 Peak billing opt-out: air_conditioner_01` and the AC comes back
 ON. The other luxury loads stay off.
 
-**End it:** publish `normal`. The Pi logs `🏠 Household peak ended`. The TV
-returns (normal has it on). The paid AC stays on. Other loads the peak shed
-stay off until switched on again.
+**End it:** publish `normal`. The Pi logs `🏠 Household peak ended` and
+`🔄 Scenario normal → resident choices reset`. The house returns to the normal
+baseline: fridge, TV, fan and lights on; AC and EV off.
 
 ### C. `grid_peak`: declared from the Grid Controller
 
@@ -233,7 +239,10 @@ where it did: `grid_peak_luxury_shed`, `household_peak_luxury_shed`,
 | Dashboard stuck on "Waiting for Raspberry Pi telemetry" | `runtime_bridge.py` not running, or `NEXT_PUBLIC_HOUSE_ID` ≠ `HOUSE_ID` |
 | Publishing a scenario changes nothing | Agent/bridge started after the publish (state isn't retained): publish again |
 | Grid peak declared but nothing happens | Severity below 0.60, or the 40-second warning is still running |
-| Luxury load never sheds in a peak | Resident paid for it, or it is inside the 15-minute manual-override hold |
+| Luxury load never sheds in a peak | The resident paid for it (it is in `opted_out`), or the grid peak is still in its warning |
+| Header shows "N min old" / "MQTT DISCONNECTED (Retained State)" | `runtime_bridge.py` is not running: the dashboard is showing the last retained state |
+| "Raspberry Pi agent is offline" notice; switches report "No reply from the Raspberry Pi" after 15 s | `pi_agent.py` is not running or not connected |
+| A peak alert from an earlier run is still showing | It disappears when the Pi reconnects: on connect the Pi replaces the retained peak status |
 | No RL decisions at all | `RL_ENABLED=false`, or the model file is missing (agent logs `❌ RL enabled but model is not loaded`) |
 | OLED blank | I2C off, wrong address, or `luma.oled`/`pillow` not installed (agent logs `⚠️ OLED unavailable`) |
 | Grid peak shows on the dashboard but the Pi ignores it | Pi and dashboard on different `HOUSE_ID`s |

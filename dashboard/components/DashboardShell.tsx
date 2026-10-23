@@ -77,6 +77,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
     piHealth,
     runtimeHealth,
     gridWarning,
+    piOnline,
     optedOutEvents,
     participatedEvents,
     confirmKeepOn,
@@ -206,6 +207,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
                 initialTab={initialTab as FeatureTab}
                 pendingAppliances={pendingAppliances}
                 gridWarning={gridWarning}
+                piOnline={piOnline}
                 optedOutEvents={optedOutEvents}
                 participatedEvents={participatedEvents}
                 onConfirmKeepOn={confirmKeepOn}

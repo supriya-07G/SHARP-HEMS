@@ -211,7 +211,13 @@ export function connectFeed({
           return;
         }
 
-        lastRuntimeMessage = Date.now();
+        // Age comes from when the bridge MADE the message, not when it
+        // arrived: a retained message from a bridge that has since stopped
+        // arrives instantly but is old, and must show as stale.
+        const madeAt = Date.parse(parsed.timestamp_ist);
+        lastRuntimeMessage = Number.isNaN(madeAt)
+          ? Date.now()
+          : Math.min(Date.now(), madeAt);
         emit('live', parsed, null);
         return;
       }

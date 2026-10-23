@@ -58,10 +58,6 @@ PKL_MODEL_PATH = Path(
     )
 )
 
-MANUAL_OVERRIDE_HOLD_SECONDS = int(
-    os.getenv("MANUAL_OVERRIDE_HOLD_SECONDS", "900")
-)
-
 GRID_PEAK_POLICY_THRESHOLD = float(os.getenv("GRID_PEAK_POLICY_THRESHOLD", "0.60"))
 
 # Live weather older than this cannot override RL weather features.
@@ -222,7 +218,11 @@ last_applied_levels = {
     for device_id in DEVICES
 }
 
-manual_override_until = {}
+# The resident's last switch per appliance. The RL loop always decides for
+# every appliance (there is no manual hold); these choices are inputs to the
+# policy. Cleared when a different scenario is published.
+resident_levels = {}
+resident_levels_scenario = None
 rl_policy = None
 active_grid_event = None
 latest_weather = None
@@ -1498,13 +1498,11 @@ def handle_override(client, payload):
 
     if appliance_id in DEVICES and requested_level in (0, 1):
         with state_lock:
-            manual_override_until[appliance_id] = (
-                time.monotonic() + MANUAL_OVERRIDE_HOLD_SECONDS
-            )
+            resident_levels[appliance_id] = int(requested_level)
 
         print(
-            f"🧑 Manual authority hold → {appliance_id} for "
-            f"{MANUAL_OVERRIDE_HOLD_SECONDS}s"
+            f"🧑 Resident choice → {appliance_id} "
+            f"{LEVEL_NAMES[int(requested_level)]} (RL keeps running)"
         )
 
         # Track peak billing opt-out
@@ -1549,7 +1547,7 @@ def handle_override(client, payload):
 # ============================================================
 
 def handle_rl_state(client, payload_text):
-    global rl_policy, last_rl_state_payload
+    global rl_policy, last_rl_state_payload, resident_levels_scenario
 
     if not RL_ENABLED:
         return
@@ -1617,9 +1615,16 @@ def handle_rl_state(client, payload_text):
     supports_reduced = np.zeros(N_BRANCHES, dtype=bool)
     occupant_wants = np.zeros(N_BRANCHES, dtype=bool)
 
+    # A different scenario resets the house to that scenario's baseline.
+    scenario = payload.get("mock_scenario")
+    with state_lock:
+        if scenario != resident_levels_scenario:
+            if resident_levels:
+                print(f"🔄 Scenario {scenario} → resident choices reset")
+            resident_levels.clear()
+            resident_levels_scenario = scenario
+
     slot_to_appliance = {}
-    held_appliances = {}
-    now_mono = time.monotonic()
 
     for appliance in appliances:
         appliance_id = appliance.get("appliance_id")
@@ -1644,19 +1649,6 @@ def handle_rl_state(client, payload_text):
             print(f"⏭️ RL skipped: duplicate slot {slot}")
             return
 
-        with state_lock:
-            hold_until = manual_override_until.get(appliance_id, 0.0)
-
-        if hold_until > now_mono:
-            held_appliances[appliance_id] = {
-                "slot": slot,
-                "remaining_s": round(hold_until - now_mono, 1),
-            }
-            continue
-
-        with state_lock:
-            manual_override_until.pop(appliance_id, None)
-
         slot_to_appliance[slot] = appliance
         device_present[slot] = True
         is_necessity[slot] = bool(DEVICES[appliance_id]["necessity"])
@@ -1668,16 +1660,10 @@ def handle_rl_state(client, payload_text):
         )
 
     if not slot_to_appliance:
-        if held_appliances:
-            print(
-                "⏸️ RL state received, but all mapped devices are under "
-                "manual hold"
-            )
-        else:
-            print(
-                "⏭️ RL skipped: no wired appliances have valid training "
-                "slot values"
-            )
+        print(
+            "⏭️ RL skipped: no wired appliances have valid training "
+            "slot values"
+        )
         return
 
     started = time.perf_counter()
@@ -1694,38 +1680,40 @@ def handle_rl_state(client, payload_text):
         print(f"❌ RL inference failed: {exc}")
         return
 
-    # Mock scenarios fix essential loads at their scenario level (normal:
-    # fridge, ceiling fan and both lights on). Luxury loads follow the peak
-    # policy below. The RL model still runs above and its proposal is logged.
-    if payload.get("mock_scenario"):
-        for slot, appliance in slot_to_appliance.items():
-            if appliance.get("appliance_id") in PEAK_FLEXIBLE_LOADS:
-                continue
-            actions[slot] = int(appliance.get("level", 0))
-
     with state_lock:
+        chosen = dict(resident_levels)
         grid_shed = peak_phase == "ACTIVE"
         household_peak = household_peak_active
         opted = set(peak_opted_out)
-        # A load is "on" if the scenario has it on or the Pi has switched it
-        # on (e.g. a resident turned the AC on from the dashboard).
-        live_levels = {}
-        for appliance in slot_to_appliance.values():
-            appliance_id = appliance.get("appliance_id")
-            pi_level = (
-                current_levels.get(appliance_id, 0)
-                if last_applied_levels.get(appliance_id) is not None
-                else 0
+
+    # What each appliance should be, before any peak: the resident's own
+    # switch if they used it, otherwise the house state's level.
+    desired = {
+        appliance["appliance_id"]: int(
+            chosen.get(
+                appliance["appliance_id"],
+                appliance.get("level", 0),
             )
-            live_levels[appliance_id] = max(
-                int(appliance.get("level", 0)),
-                int(pi_level),
-            )
+        )
+        for appliance in slot_to_appliance.values()
+    }
+
+    # Essential loads: the resident's switch wins (they may always switch
+    # their own appliance); mock scenarios otherwise fix them at the
+    # scenario level (normal: fridge, ceiling fan, both lights on). Luxury
+    # loads follow the peak policy below. The RL proposal is logged either
+    # way.
+    for slot, appliance in slot_to_appliance.items():
+        appliance_id = appliance.get("appliance_id")
+        if appliance_id in PEAK_FLEXIBLE_LOADS:
+            continue
+        if appliance_id in chosen or payload.get("mock_scenario"):
+            actions[slot] = desired[appliance_id]
 
     actions, grid_peak_overrides = apply_luxury_peak_policy(
         actions,
         slot_to_appliance,
-        live_levels,
+        desired,
         grid_shed,
         household_peak,
         opted,
@@ -1743,15 +1731,6 @@ def handle_rl_state(client, payload_text):
     proposed = {}
     executed = {}
     shield_reasons = {}
-
-    for appliance_id, info in held_appliances.items():
-        with state_lock:
-            executed[appliance_id] = int(
-                current_levels.get(appliance_id, 0)
-            )
-        shield_reasons[appliance_id] = [
-            f"manual_override_hold:{info['remaining_s']}s"
-        ]
 
     print()
     print("🤖 PKL RL DECISION")
@@ -1865,6 +1844,10 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
     print(f"📡 Subscribed → {GRID_EVENT_TOPIC}")
     print(f"📡 Subscribed → {WEATHER_TOPIC}")
+
+    # Replace any retained peak status left by an earlier run, so the
+    # dashboard never shows a countdown this process is not running.
+    publish_peak_status(client)
 
     client.publish(
         HEALTH_TOPIC,
@@ -2008,10 +1991,7 @@ def main():
     if RL_ENABLED:
         print(f"Model  : {PKL_MODEL_PATH}")
         print(f"State  : {STATE_TOPIC}")
-        print(
-            f"Hold   : {MANUAL_OVERRIDE_HOLD_SECONDS}s "
-            "after resident override"
-        )
+        print("Hold   : none - RL decides every appliance on every state")
 
     print("=" * 72)
 

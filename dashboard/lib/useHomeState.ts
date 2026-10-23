@@ -25,6 +25,10 @@ import {
   warningState,
 } from './peakLedger';
 
+// A switch waits this long for the Pi's ACK before it is reported as not
+// applied, so it can never sit at PENDING forever when the Pi is offline.
+const ACK_TIMEOUT_MS = 15_000;
+
 // Per-browser record of peak events seen. A convenience so the bill survives
 // a reload; the Pi's retained warning remains the source of truth.
 const PEAK_LEDGER_KEY = 'sharp.peakLedger.v1';
@@ -140,6 +144,8 @@ export interface UseHomeStateReturn {
   runtimeHealth: RuntimeHealth | null;
   /** Peak phase from the Pi: warning countdown, then active shed. */
   gridWarning: GridWarningState;
+  /** The Pi agent's own health says online. Switches need it. */
+  piOnline: boolean;
   /** Device-events kept on through a peak this month (surcharged). */
   optedOutEvents: number;
   /** Peak events this month ridden through with a load paused (credited). */
@@ -219,8 +225,20 @@ export function useHomeState(): UseHomeStateReturn {
   }, []);
 
   const handleAckRef = useRef<((ack: PiAck) => void) | null>(null);
+  const ackTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const timers = ackTimers.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
 
   const handleAck = useCallback((ack: PiAck) => {
+    const timer = ackTimers.current.get(ack.appliance_id);
+    if (timer) {
+      clearTimeout(timer);
+      ackTimers.current.delete(ack.appliance_id);
+    }
+
     setPendingAppliances((prev) => {
       const next = new Set(prev);
       next.delete(ack.appliance_id);
@@ -262,7 +280,9 @@ export function useHomeState(): UseHomeStateReturn {
     });
   }, []);
 
-  handleAckRef.current = handleAck;
+  useEffect(() => {
+    handleAckRef.current = handleAck;
+  }, [handleAck]);
 
   useEffect(() => {
     const disconnect = connectFeed({
@@ -379,6 +399,32 @@ export function useHomeState(): UseHomeStateReturn {
         return next;
       });
 
+      const previousTimer = ackTimers.current.get(applianceId);
+      if (previousTimer) clearTimeout(previousTimer);
+      ackTimers.current.set(applianceId, setTimeout(() => {
+        ackTimers.current.delete(applianceId);
+        setPendingAppliances((prev) => {
+          if (!prev.has(applianceId)) return prev;
+          const next = new Set(prev);
+          next.delete(applianceId);
+          return next;
+        });
+        setLastAck({
+          command_id:
+            result.command?.override_id ?? `no-reply-${Date.now()}`,
+          appliance_id: applianceId,
+          accepted: false,
+          applied_level: currentApp?.level ?? 0,
+          rejected_reason: 'PI_NO_RESPONSE',
+          gpio_state: currentApp?.gpio_state ?? 0,
+          measured_w: null,
+          verification: 'NO_METER',
+          acked_at: new Date().toISOString(),
+          latency_ms: Date.now() - t0,
+          delivery_stage: 'broker',
+        });
+      }, ACK_TIMEOUT_MS));
+
       return {
         command_id:
           result.command?.override_id ?? `dispatched-${Date.now()}`,
@@ -445,6 +491,7 @@ export function useHomeState(): UseHomeStateReturn {
   );
 
   const { optedOutEvents, participatedEvents } = ledgerCounts(peakLedger);
+  const piOnline = piHealth?.status === 'online';
 
   // Weather is authoritative only after it returns through the MQTT runtime
   // stream. Do not mutate the displayed HomeState optimistically.
@@ -469,7 +516,10 @@ export function useHomeState(): UseHomeStateReturn {
     history,
     piHealth,
     runtimeHealth,
-    gridWarning,
+    // A retained peak status from a Pi that is now offline describes a
+    // countdown nobody is running; show no peak until the Pi is back.
+    gridWarning: piOnline ? gridWarning : NO_GRID_WARNING,
+    piOnline,
     optedOutEvents,
     participatedEvents,
     confirmKeepOn,

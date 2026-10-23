@@ -15,6 +15,7 @@ import {
 } from '@/lib/contracts';
 
 import { ApplianceCard } from './ApplianceCard';
+import { ackReasonText, ackTitle } from '@/lib/ackText';
 
 interface Panel4AppliancesProps {
   appliances: ApplianceState[];
@@ -83,9 +84,7 @@ export function Panel4Appliances({
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold">
-                  {lastAck.accepted
-                    ? 'COMMAND ACCEPTED'
-                    : 'COMMAND REJECTED'}
+                  {ackTitle(lastAck)}
                 </span>
 
                 <span className="font-mono text-[11px] text-slate-500">
@@ -107,13 +106,7 @@ export function Panel4Appliances({
                     .
                   </>
                 ) : (
-                  <>
-                    Refused by Safety Shield:{' '}
-                    <strong className="font-mono text-[#0f2d4a]">
-                      {lastAck.rejected_reason}
-                    </strong>
-                    . Critical loads cannot be disconnected.
-                  </>
+                  ackReasonText(lastAck)
                 )}
               </p>
             </div>
