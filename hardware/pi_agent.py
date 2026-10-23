@@ -93,8 +93,10 @@ GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
 GRID_WARNING_TOPIC = f"home/{HOUSE_ID}/grid/warning"
 
+# Notice before a declared grid peak sheds luxury loads. 40 s for the demo;
+# set PEAK_WARNING_SECONDS=600 for the real 10-minute notice.
 PEAK_WARNING_SECONDS = int(
-    os.getenv("PEAK_WARNING_SECONDS", "600")
+    os.getenv("PEAK_WARNING_SECONDS", "40")
 )
 
 # Proposed per-device opt-out charge, mirrored from the dashboard's
@@ -232,6 +234,7 @@ state_lock = threading.RLock()
 last_rl_state_payload = None
 peak_phase = "NONE"           # NONE, WARNING, ACTIVE
 peak_warning_timer = None
+grid_expiry_timer = None         # ends the grid peak at the event's expires_at
 peak_opted_out = set()
 peak_warning_started_at = None   # IST ISO string
 peak_shed_at = None              # IST ISO string
@@ -420,7 +423,7 @@ def apply_luxury_peak_policy(
     "Left as they are" means on stays on and off stays off: with no peak the
     RL model neither sheds a luxury load nor starts one the resident did not
     ask for. grid_shed is True once the Grid Controller's declared peak has
-    passed its 10-minute warning; during the warning nothing is shed yet. A
+    passed its warning period; during the warning nothing is shed yet. A
     load the resident paid to keep on (opted_out) is never shed by a peak.
 
     Essential loads are not touched here; the Pi's shield protects them.
@@ -629,9 +632,53 @@ def update_household_peak(client, payload_text):
     publish_peak_status(client)
 
 
+def _schedule_grid_expiry(client, event):
+    """End the grid peak when the declared event's duration runs out.
+
+    Without this the phase would stay ACTIVE after expiry and luxury loads
+    would stay shed until someone pressed Cancel on the dashboard.
+    """
+    global grid_expiry_timer
+
+    with state_lock:
+        if grid_expiry_timer is not None:
+            grid_expiry_timer.cancel()
+            grid_expiry_timer = None
+
+    expiry = parse_datetime(event.get("expires_at"))
+    if expiry is None:
+        return
+
+    seconds = (expiry - datetime.now(timezone.utc)).total_seconds()
+    timer = threading.Timer(
+        max(0.0, seconds),
+        _expire_grid_event,
+        args=[client, event],
+    )
+    timer.daemon = True
+    with state_lock:
+        grid_expiry_timer = timer
+    timer.start()
+
+
+def _expire_grid_event(client, event):
+    global active_grid_event, grid_expiry_timer
+
+    with state_lock:
+        if active_grid_event is not event:
+            # Replaced or cancelled since this timer was set.
+            return
+        active_grid_event = None
+        grid_expiry_timer = None
+
+    print("🟢 Grid event expired")
+    _end_grid_peak(client)
+    _replay_rl(client)
+
+
 def handle_grid_event(client, payload_text):
     global active_grid_event, peak_phase, peak_warning_timer
-    global peak_shed_at, peak_shed_at_mono
+    global peak_shed_at, peak_shed_at_mono, grid_expiry_timer
 
     try:
         event = json.loads(payload_text)
@@ -644,6 +691,9 @@ def handle_grid_event(client, payload_text):
     if action == "cancel":
         with state_lock:
             active_grid_event = None
+            if grid_expiry_timer is not None:
+                grid_expiry_timer.cancel()
+                grid_expiry_timer = None
         _end_grid_peak(client)
         print("🟢 Grid event cancelled")
         _replay_rl(client)
@@ -665,6 +715,8 @@ def handle_grid_event(client, payload_text):
 
     with state_lock:
         active_grid_event = event
+
+    _schedule_grid_expiry(client, event)
 
     if severity < GRID_PEAK_POLICY_THRESHOLD:
         _end_grid_peak(client)

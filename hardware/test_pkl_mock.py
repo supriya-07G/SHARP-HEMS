@@ -57,7 +57,7 @@ def masks(payload):
 
 
 # Grid peak is declared from the dashboard; here it is set as it would be
-# once the declared peak has passed its 10-minute warning.
+# once the declared peak has passed its warning period.
 GRID_SHED = {
     "normal": False,
     "grid_peak": True,

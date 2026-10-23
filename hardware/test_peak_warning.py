@@ -126,6 +126,21 @@ def main():
     assert cancel["opted_out"] == ["air_conditioner_01", "ev_charger_01"]
     assert locked_ids(cancel) == set()
 
+    # The event's duration running out ends the peak without a Cancel.
+    expires = (
+        pi_agent.datetime.now(pi_agent.timezone.utc)
+        + pi_agent.timedelta(seconds=2)
+    ).isoformat()
+    pi_agent.handle_grid_event(client, json.dumps({
+        "action": "declare", "severity": 0.85, "expires_at": expires,
+    }))
+    time.sleep(1.5)
+    assert pi_agent.peak_phase == "ACTIVE"
+    time.sleep(1.0)
+    assert pi_agent.peak_phase == "NONE", "expired event must end the peak"
+    assert client.warnings()[-1]["action"] == "cancel"
+    assert pi_agent.active_grid_event is None
+
     # A low-severity declare during a warning ends it and stops the timer.
     declare(client)
     declare(client, 0.3)

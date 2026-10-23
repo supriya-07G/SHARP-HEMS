@@ -76,10 +76,13 @@ export function PeakAlert({
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
-    const minutes = Math.ceil(secondsUntil(shedAtMs) / 60);
+    const secs = secondsUntil(shedAtMs);
+    const lead = secs < 120
+      ? `${secs} seconds`
+      : `${Math.ceil(secs / 60)} minutes`;
     try {
       new Notification(
-        phase === 'warning' ? `Grid peak in ${minutes} minutes`
+        phase === 'warning' ? `Grid peak in ${lead}`
           : phase === 'household' ? 'Your home is at its peak' : 'Grid peak started',
         {
           body: 'Luxury loads will pause. Your fan, light and fridge stay on.',
