@@ -228,8 +228,10 @@ SCENARIOS = {
         "tariff_inr_kwh": 4.50,
         "battery_soc": 0.85,
         "background_kw": 0.084,
+        # Normal baseline: only two lights, refrigerator, and ceiling fan ON.
+        # All other devices begin OFF so normal and peak have distinct inputs.
         "current": {
-            "air_conditioner_01": 1,
+            "air_conditioner_01": 0,
             "ceiling_fan_01": 1,
             "ev_charger_01": 0,
             "led_bulb_01": 1,
@@ -237,11 +239,11 @@ SCENARIOS = {
             "mixer_grinder_01": 0,
             "refrigerator_01": 1,
             "table_fan_01": 0,
-            "television_01": 1,
-            "washing_machine_01": 1,
+            "television_01": 0,
+            "washing_machine_01": 0,
         },
         "wanted": {
-            "air_conditioner_01": True,
+            "air_conditioner_01": False,
             "ceiling_fan_01": True,
             "ev_charger_01": False,
             "led_bulb_01": True,
@@ -249,8 +251,8 @@ SCENARIOS = {
             "mixer_grinder_01": False,
             "refrigerator_01": True,
             "table_fan_01": False,
-            "television_01": True,
-            "washing_machine_01": True,
+            "television_01": False,
+            "washing_machine_01": False,
         },
     },
     "peak": {
@@ -269,8 +271,9 @@ SCENARIOS = {
         "tariff_inr_kwh": 4.50,
         "battery_soc": 0.78,
         "background_kw": 0.084,
-        # Deliberately start several discretionary loads ON so the policy has
-        # something meaningful to decide under a peak.
+        # Peak baseline: every device starts ON so the RL model and peak
+        # safety overlay have loads to evaluate and shed. This is the input
+        # state snapshot; physical GPIO outputs follow the resulting decisions.
         "current": {
             "air_conditioner_01": 1,
             "ceiling_fan_01": 1,
