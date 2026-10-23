@@ -138,7 +138,7 @@ export interface UseHomeStateReturn {
   history: LiveLoadPoint[];
   piHealth: RuntimeHealth | null;
   runtimeHealth: RuntimeHealth | null;
-  /** Peak phase from the Pi: 10-minute warning, then active shed. */
+  /** Peak phase from the Pi: warning countdown, then active shed. */
   gridWarning: GridWarningState;
   /** Device-events kept on through a peak this month (surcharged). */
   optedOutEvents: number;

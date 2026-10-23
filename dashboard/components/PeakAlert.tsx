@@ -9,11 +9,12 @@
  * LATENCY between the notice appearing and the tap is the graded signal. So it
  * is timed from the moment the notice renders, not from the click.
  *
- * Two phases, both owned by the Pi (home/<house>/grid/warning):
+ * Three phases, all owned by the Pi (home/<house>/grid/warning):
  *
- *   warning - the countdown to shedding. The deadline comes from the Pi, so a
- *             reload or a second screen shows the same time left.
- *   active  - flexible loads not kept on are paused and locked out.
+ *   warning   - the countdown to shedding. The deadline comes from the Pi, so
+ *               a reload or a second screen shows the same time left.
+ *   active    - grid peak: flexible loads not kept on are paused and locked.
+ *   household - this home's own peak with no grid peak: the same, here only.
  *
  * Two honesty rules:
  *
@@ -31,7 +32,7 @@ import { PROPOSED_OPT_OUT_INR_PER_EVENT } from '@/lib/billing';
 import { SurchargeConfirm } from './SurchargeConfirm';
 
 interface Props {
-  phase: 'warning' | 'active';
+  phase: 'warning' | 'active' | 'household';
   /** Epoch ms when shedding starts. Null when the Pi gave no deadline. */
   shedAtMs: number | null;
   /** Flexible loads this peak applies to. */
@@ -75,10 +76,14 @@ export function PeakAlert({
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
-    const minutes = Math.ceil(secondsUntil(shedAtMs) / 60);
+    const secs = secondsUntil(shedAtMs);
+    const lead = secs < 120
+      ? `${secs} seconds`
+      : `${Math.ceil(secs / 60)} minutes`;
     try {
       new Notification(
-        phase === 'warning' ? `Grid peak in ${minutes} minutes` : 'Grid peak started',
+        phase === 'warning' ? `Grid peak in ${lead}`
+          : phase === 'household' ? 'Your home is at its peak' : 'Grid peak started',
         {
           body: 'Luxury loads will pause. Your fan, light and fridge stay on.',
           tag: 'sharp-peak',
@@ -136,10 +141,14 @@ export function PeakAlert({
               <p className="text-[15px] font-semibold tabular-nums" style={{ color: 'var(--navy)' }}>
                 {phase === 'warning'
                   ? (shedAtMs === null ? 'Grid peak starting soon' : `Grid peak in ${mm}:${ss}`)
-                  : 'Grid peak in progress'}
+                  : phase === 'household'
+                    ? 'Household peak in your home'
+                    : 'Grid peak in progress'}
               </p>
               <p className="text-[12px]" style={{ color: 'var(--yellow-ink)' }}>
-                Severity {severity.toFixed(2)} · APCPDCL Guntur
+                {phase === 'household'
+                  ? 'No grid peak · this home only'
+                  : `Severity ${severity.toFixed(2)} · APCPDCL Guntur`}
               </p>
             </div>
           </div>

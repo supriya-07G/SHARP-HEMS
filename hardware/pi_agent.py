@@ -93,8 +93,10 @@ GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
 GRID_WARNING_TOPIC = f"home/{HOUSE_ID}/grid/warning"
 
+# Notice before a declared grid peak sheds luxury loads. 40 s for the demo;
+# set PEAK_WARNING_SECONDS=600 for the real 10-minute notice.
 PEAK_WARNING_SECONDS = int(
-    os.getenv("PEAK_WARNING_SECONDS", "600")
+    os.getenv("PEAK_WARNING_SECONDS", "40")
 )
 
 # Proposed per-device opt-out charge, mirrored from the dashboard's
@@ -232,10 +234,14 @@ state_lock = threading.RLock()
 last_rl_state_payload = None
 peak_phase = "NONE"           # NONE, WARNING, ACTIVE
 peak_warning_timer = None
+grid_expiry_timer = None         # ends the grid peak at the event's expires_at
 peak_opted_out = set()
 peak_warning_started_at = None   # IST ISO string
 peak_shed_at = None              # IST ISO string
 peak_shed_at_mono = 0.0          # monotonic deadline for the OLED countdown
+# This house's own household peak, reported in its HomeState. Independent of
+# the grid: it sheds luxury loads in this house only.
+household_peak_active = False
 
 
 # ============================================================
@@ -385,7 +391,7 @@ class PklSharpPolicy:
 
 
 # ============================================================
-# GRID-PEAK POLICY OVERLAY
+# LUXURY-LOAD PEAK POLICY
 # ============================================================
 
 PEAK_FLEXIBLE_LOADS = {
@@ -397,27 +403,60 @@ PEAK_FLEXIBLE_LOADS = {
 }
 
 
-def apply_grid_peak_policy(actions, slot_to_appliance, occupant_wants, grid_severity):
-    """Shed unrequested flexible loads during a high-severity grid event.
+def apply_luxury_peak_policy(
+    actions,
+    slot_to_appliance,
+    live_levels,
+    grid_shed,
+    household_peak,
+    opted_out,
+):
+    """Shed luxury (flexible) loads only when a peak is observed.
 
-    Essential loads are excluded. Devices under manual override are excluded
-    earlier when slot_to_appliance is built. This is a deterministic safety /
-    demand-response overlay; it does not modify the trained PKL weights.
+      grid peak  household peak  luxury loads
+      ---------  --------------  -----------------------------
+      yes        yes             shed
+      yes        no              shed
+      no         yes             shed (this house only)
+      no         no              left exactly as they are
+
+    "Left as they are" means on stays on and off stays off: with no peak the
+    RL model neither sheds a luxury load nor starts one the resident did not
+    ask for. grid_shed is True once the Grid Controller's declared peak has
+    passed its warning period; during the warning nothing is shed yet. A
+    load the resident paid to keep on (opted_out) is never shed by a peak.
+
+    Essential loads are not touched here; the Pi's shield protects them.
+    This is a deterministic overlay; it does not modify the PKL weights.
     """
     result = np.asarray(actions, dtype=int).copy()
     overrides = {}
-    if grid_severity is None or float(grid_severity) < GRID_PEAK_POLICY_THRESHOLD:
-        return result, overrides
+    shedding = bool(grid_shed or household_peak)
+    shed_reason = (
+        "grid_peak_luxury_shed" if grid_shed
+        else "household_peak_luxury_shed"
+    )
 
     for slot, appliance in slot_to_appliance.items():
         appliance_id = appliance.get("appliance_id")
         if appliance_id not in PEAK_FLEXIBLE_LOADS:
             continue
-        if bool(occupant_wants[slot]):
-            continue
-        if int(result[slot]) != 0:
+
+        live = int(live_levels.get(appliance_id, 0))
+
+        if shedding and appliance_id not in opted_out:
+            if live != 0 or int(result[slot]) != 0:
+                overrides[appliance_id] = shed_reason
             result[slot] = 0
-            overrides[appliance_id] = "grid_peak_unrequested_flexible_load"
+        elif int(result[slot]) != live:
+            if live != 0:
+                overrides[appliance_id] = (
+                    "peak_surcharge_paid" if shedding
+                    else "no_peak_luxury_kept_on"
+                )
+            else:
+                overrides[appliance_id] = "luxury_not_requested"
+            result[slot] = live
 
     return result, overrides
 
@@ -483,20 +522,50 @@ def command_is_expired(command):
 # GRID EVENT
 # ============================================================
 
-def publish_grid_warning(client, action):
-    """Publish the current peak phase so the bridge/dashboard can follow it.
+def _peak_action():
+    """Peak status the dashboard shows. Caller holds state_lock."""
+    if peak_phase == "WARNING":
+        return "warning"
+    if peak_phase == "ACTIVE":
+        return "active"
+    if household_peak_active:
+        return "household"
+    return "cancel"
+
+
+def _start_peak_episode():
+    """Open a billing episode if none is open. Caller holds state_lock.
+
+    One episode runs from the first grid warning or household peak until
+    both have ended, so an overlap is billed once per device.
+    """
+    global peak_warning_started_at
+
+    if peak_warning_started_at is None:
+        peak_warning_started_at = datetime.now(IST).isoformat()
+        peak_opted_out.clear()
+
+
+def publish_peak_status(client):
+    """Publish the current peak status so the bridge/dashboard can follow it.
 
     Retained, so a dashboard that connects mid-warning still sees the
-    countdown deadline and who has opted out.
+    countdown deadline and who has opted out. When both peaks have ended the
+    episode is closed after a final "cancel" that still names it.
     """
+    global peak_warning_started_at, peak_shed_at
+
     with state_lock:
+        action = _peak_action()
         notice = {
             "schema_version": "sharp_grid_warning_v1",
             "action": action,
             "house_id": HOUSE_ID,
+            "grid_phase": peak_phase,
+            "household_peak": household_peak_active,
             "severity": effective_grid_severity() or 0.0,
             "warning_started_at": peak_warning_started_at,
-            "shed_at": peak_shed_at,
+            "shed_at": peak_shed_at if peak_phase == "WARNING" else None,
             "lead_time_seconds": PEAK_WARNING_SECONDS,
             "affected_loads": sorted(PEAK_FLEXIBLE_LOADS),
             "opted_out": sorted(peak_opted_out),
@@ -510,11 +579,17 @@ def publish_grid_warning(client, action):
         retain=True,
     )
 
+    if action == "cancel":
+        with state_lock:
+            if peak_phase == "NONE" and not household_peak_active:
+                peak_opted_out.clear()
+                peak_warning_started_at = None
+                peak_shed_at = None
 
-def _end_peak(client):
-    """Return to NONE and tell the dashboard, if a peak phase was running."""
+
+def _end_grid_peak(client):
+    """Return the grid phase to NONE and tell the dashboard if it changed."""
     global peak_phase, peak_warning_timer
-    global peak_warning_started_at, peak_shed_at
 
     with state_lock:
         was_running = peak_phase != "NONE"
@@ -526,17 +601,84 @@ def _end_peak(client):
         timer.cancel()
 
     if was_running:
-        publish_grid_warning(client, "cancel")
+        publish_peak_status(client)
+
+
+def update_household_peak(client, payload_text):
+    """Track this house's household peak from its HomeState."""
+    global household_peak_active
+
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        return
+
+    observed = bool(payload.get("household_peak", False))
 
     with state_lock:
-        peak_opted_out.clear()
-        peak_warning_started_at = None
-        peak_shed_at = None
+        changed = observed != household_peak_active
+        household_peak_active = observed
+        if changed and observed:
+            _start_peak_episode()
+
+    if not changed:
+        return
+
+    print(
+        "🏠 HOUSEHOLD PEAK → shedding luxury loads in this house"
+        if observed else
+        "🏠 Household peak ended"
+    )
+    publish_peak_status(client)
+
+
+def _schedule_grid_expiry(client, event):
+    """End the grid peak when the declared event's duration runs out.
+
+    Without this the phase would stay ACTIVE after expiry and luxury loads
+    would stay shed until someone pressed Cancel on the dashboard.
+    """
+    global grid_expiry_timer
+
+    with state_lock:
+        if grid_expiry_timer is not None:
+            grid_expiry_timer.cancel()
+            grid_expiry_timer = None
+
+    expiry = parse_datetime(event.get("expires_at"))
+    if expiry is None:
+        return
+
+    seconds = (expiry - datetime.now(timezone.utc)).total_seconds()
+    timer = threading.Timer(
+        max(0.0, seconds),
+        _expire_grid_event,
+        args=[client, event],
+    )
+    timer.daemon = True
+    with state_lock:
+        grid_expiry_timer = timer
+    timer.start()
+
+
+def _expire_grid_event(client, event):
+    global active_grid_event, grid_expiry_timer
+
+    with state_lock:
+        if active_grid_event is not event:
+            # Replaced or cancelled since this timer was set.
+            return
+        active_grid_event = None
+        grid_expiry_timer = None
+
+    print("🟢 Grid event expired")
+    _end_grid_peak(client)
+    _replay_rl(client)
 
 
 def handle_grid_event(client, payload_text):
     global active_grid_event, peak_phase, peak_warning_timer
-    global peak_warning_started_at, peak_shed_at, peak_shed_at_mono
+    global peak_shed_at, peak_shed_at_mono, grid_expiry_timer
 
     try:
         event = json.loads(payload_text)
@@ -549,7 +691,10 @@ def handle_grid_event(client, payload_text):
     if action == "cancel":
         with state_lock:
             active_grid_event = None
-        _end_peak(client)
+            if grid_expiry_timer is not None:
+                grid_expiry_timer.cancel()
+                grid_expiry_timer = None
+        _end_grid_peak(client)
         print("🟢 Grid event cancelled")
         _replay_rl(client)
         return
@@ -571,21 +716,21 @@ def handle_grid_event(client, payload_text):
     with state_lock:
         active_grid_event = event
 
+    _schedule_grid_expiry(client, event)
+
     if severity < GRID_PEAK_POLICY_THRESHOLD:
-        _end_peak(client)
-        print(f"🔴 Grid event → severity {severity:.2f}")
+        _end_grid_peak(client)
+        print(f"🔴 Grid event → severity {severity:.2f} (below peak threshold)")
         _replay_rl(client)
         return
 
     with state_lock:
         already_running = peak_phase != "NONE"
         if not already_running:
-            started = datetime.now(IST)
             peak_phase = "WARNING"
-            peak_opted_out.clear()
-            peak_warning_started_at = started.isoformat()
+            _start_peak_episode()
             peak_shed_at = (
-                started + timedelta(seconds=PEAK_WARNING_SECONDS)
+                datetime.now(IST) + timedelta(seconds=PEAK_WARNING_SECONDS)
             ).isoformat()
             peak_shed_at_mono = time.monotonic() + PEAK_WARNING_SECONDS
 
@@ -598,10 +743,10 @@ def handle_grid_event(client, payload_text):
         _replay_rl(client)
         return
 
-    publish_grid_warning(client, "warning")
+    publish_peak_status(client)
     print(
         f"⚠️ PEAK WARNING → {PEAK_WARNING_SECONDS}s "
-        "before shed begins"
+        "before luxury loads are shed"
     )
 
     timer = threading.Timer(
@@ -614,7 +759,7 @@ def handle_grid_event(client, payload_text):
         peak_warning_timer = timer
     timer.start()
 
-    # Unrequested flexible loads are still shed now by the grid-peak overlay.
+    # Luxury loads keep running through the warning.
     _replay_rl(client)
 
 
@@ -629,8 +774,8 @@ def _activate_peak_shed(client):
         peak_phase = "ACTIVE"
         peak_warning_timer = None
 
-    print("🔴 PEAK ACTIVE → Shedding unpaid flexible loads!")
-    publish_grid_warning(client, "active")
+    print("🔴 GRID PEAK ACTIVE → Shedding unpaid luxury loads!")
+    publish_peak_status(client)
     _replay_rl(client)
 
 
@@ -1060,6 +1205,7 @@ def oled_peak_page():
 
     with state_lock:
         phase = peak_phase
+        household = household_peak_active
         seconds_left = max(0, int(peak_shed_at_mono - time.monotonic()))
         opted = len(peak_opted_out)
 
@@ -1070,8 +1216,8 @@ def oled_peak_page():
         status = "SHARP HEMS  PEAK ACTV"
         timer_line = "PEAK ACTIVE (SHED)"
     else:
-        status = "SHARP HEMS  PEAK"
-        timer_line = "Unrequested loads off"
+        status = "SHARP HEMS  HOME PEAK"
+        timer_line = "HOUSE PEAK (SHED)" if household else "Peak ended"
 
     load_kw = oled_load_kw()
 
@@ -1125,9 +1271,9 @@ def oled_loop():
         severity = effective_grid_severity()
 
         with state_lock:
-            phase = peak_phase
+            peak_running = peak_phase != "NONE" or household_peak_active
 
-        if phase != "NONE" or (severity is not None and severity >= 0.4):
+        if peak_running or (severity is not None and severity >= 0.4):
             oled_draw_lines(oled_peak_page())
             oled_stop_event.wait(0.5)
             continue
@@ -1367,9 +1513,11 @@ def handle_override(client, payload):
             and requested_level != 0
         ):
             with state_lock:
-                phase = peak_phase
                 newly_opted = (
-                    phase in ("WARNING", "ACTIVE")
+                    (
+                        peak_phase in ("WARNING", "ACTIVE")
+                        or household_peak_active
+                    )
                     and appliance_id not in peak_opted_out
                 )
                 if newly_opted:
@@ -1378,7 +1526,7 @@ def handle_override(client, payload):
             if newly_opted:
                 print(f"💳 Peak billing opt-out: {appliance_id}")
                 # Republish so the bridge unlocks this appliance.
-                publish_grid_warning(client, phase.lower())
+                publish_peak_status(client)
 
     command = {
         "schema_version": "sharp_cmd_v2",
@@ -1448,14 +1596,15 @@ def handle_rl_state(client, payload_text):
         state[0:4] = np.asarray(weather_features, dtype=float)
         payload["outdoor_temperature_c"] = float(weather_features[0])
 
-    grid_severity = effective_grid_severity()
+    # The grid peak is established only by the Grid Controller's declared
+    # event; a severity carried in the state itself is not a grid peak.
+    grid_severity = effective_grid_severity() or 0.0
 
-    if grid_severity is not None:
-        # Feature index 5 is obs_grid_peak_severity in the frozen 305-feature
-        # training contract. Everything else remains from the state builder.
-        state = state.copy()
-        state[5] = grid_severity
-        payload["grid_peak_severity"] = grid_severity
+    # Feature index 5 is obs_grid_peak_severity in the frozen 305-feature
+    # training contract. Everything else remains from the state builder.
+    state = state.copy()
+    state[5] = grid_severity
+    payload["grid_peak_severity"] = grid_severity
 
     appliances = payload.get("appliances", [])
 
@@ -1545,75 +1694,48 @@ def handle_rl_state(client, payload_text):
         print(f"❌ RL inference failed: {exc}")
         return
 
-    grid_severity_for_policy = payload.get("grid_peak_severity", state[5])
-    try:
-        grid_severity_for_policy = float(grid_severity_for_policy)
-    except (TypeError, ValueError):
-        grid_severity_for_policy = float(state[5])
+    # Mock scenarios fix essential loads at their scenario level (normal:
+    # fridge, ceiling fan and both lights on). Luxury loads follow the peak
+    # policy below. The RL model still runs above and its proposal is logged.
+    if payload.get("mock_scenario"):
+        for slot, appliance in slot_to_appliance.items():
+            if appliance.get("appliance_id") in PEAK_FLEXIBLE_LOADS:
+                continue
+            actions[slot] = int(appliance.get("level", 0))
 
-    actions, grid_peak_overrides = apply_grid_peak_policy(
+    with state_lock:
+        grid_shed = peak_phase == "ACTIVE"
+        household_peak = household_peak_active
+        opted = set(peak_opted_out)
+        # A load is "on" if the scenario has it on or the Pi has switched it
+        # on (e.g. a resident turned the AC on from the dashboard).
+        live_levels = {}
+        for appliance in slot_to_appliance.values():
+            appliance_id = appliance.get("appliance_id")
+            pi_level = (
+                current_levels.get(appliance_id, 0)
+                if last_applied_levels.get(appliance_id) is not None
+                else 0
+            )
+            live_levels[appliance_id] = max(
+                int(appliance.get("level", 0)),
+                int(pi_level),
+            )
+
+    actions, grid_peak_overrides = apply_luxury_peak_policy(
         actions,
         slot_to_appliance,
-        occupant_wants,
-        grid_severity_for_policy,
+        live_levels,
+        grid_shed,
+        household_peak,
+        opted,
     )
 
-    # Deterministic normal-demo baseline: keep exactly two lights, the
-    # refrigerator, and the ceiling fan ON. The RL model still runs above,
-    # but this named demo scenario intentionally fixes its final output state.
-    if payload.get("mock_scenario") == "normal":
-        normal_levels = {
-            "air_conditioner_01": 0,
-            "ceiling_fan_01": 1,
-            "ev_charger_01": 0,
-            "led_bulb_01": 1,
-            "led_tube_01": 1,
-            "mixer_grinder_01": 0,
-            "refrigerator_01": 1,
-            "table_fan_01": 0,
-            "television_01": 0,
-            "washing_machine_01": 0,
-        }
-        for slot, appliance in slot_to_appliance.items():
-            appliance_id = appliance.get("appliance_id")
-            if appliance_id in normal_levels:
-                actions[slot] = normal_levels[appliance_id]
-        print(
-            "🟢 NORMAL SCENARIO BASELINE → "
-            "Light 1 ON, Light 2 ON, Refrigerator ON, Ceiling Fan ON; "
-            "all other rig loads OFF"
-        )
-
-    if grid_peak_overrides:
-        print(
-            "⚡ GRID-PEAK POLICY → severity "
-            f"{grid_severity_for_policy:.2f}; overrides: {grid_peak_overrides}"
-        )
-
-    # During ACTIVE peak: force shed ALL non-opted-out flexible loads
-    with state_lock:
-        current_phase = peak_phase
-
-    if current_phase == "ACTIVE":
-        active_overrides = {}
-        with state_lock:
-            opted = set(peak_opted_out)
-        for slot, appliance in slot_to_appliance.items():
-            appliance_id = appliance.get("appliance_id")
-            if appliance_id not in PEAK_FLEXIBLE_LOADS:
-                continue
-            if appliance_id in opted:
-                continue
-            if int(actions[slot]) != 0:
-                actions[slot] = 0
-                active_overrides[appliance_id] = (
-                    "peak_active_forced_shed"
-                )
-        if active_overrides:
-            grid_peak_overrides.update(active_overrides)
-            print(
-                f"🔴 PEAK ACTIVE SHED → {active_overrides}"
-            )
+    print(
+        f"⚡ PEAK POLICY → grid {'PEAK' if grid_shed else peak_phase}, "
+        f"household {'PEAK' if household_peak else 'normal'}; "
+        f"overrides: {grid_peak_overrides or 'none'}"
+    )
 
     latency_ms = (time.perf_counter() - started) * 1000
     decision_id = str(uuid.uuid4())
@@ -1652,7 +1774,7 @@ def handle_rl_state(client, payload_text):
         "proposed": proposed,
         "executed": {**executed, **proposed},
         "shield_reasons": {**shield_reasons, **{k: [v] for k, v in grid_peak_overrides.items()}},
-        "policy_source": "bdq_v2_pkl_edge_with_peak_overlay",
+        "policy_source": "bdq_v2_pkl_edge_with_luxury_peak_policy",
         "decision_latency_ms": round(latency_ms, 3),
     }
 
@@ -1787,8 +1909,10 @@ def on_message(client, userdata, msg):
         handle_weather(payload)
         return
 
-    if RL_ENABLED and msg.topic == STATE_TOPIC:
-        handle_rl_state(client, payload)
+    if msg.topic == STATE_TOPIC:
+        update_household_peak(client, payload)
+        if RL_ENABLED:
+            handle_rl_state(client, payload)
         return
 
     if "/override/" in msg.topic:

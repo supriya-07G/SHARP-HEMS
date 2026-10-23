@@ -232,9 +232,11 @@ def build_runtime_state() -> dict | None:
 
         # peak_locked_out: True during active grid peak for flexible loads,
         # unless the appliance was opted out via billing confirmation.
+        # "active": grid peak past its warning; "household": this house's
+        # own peak. Both shed luxury loads; the warning phase does not.
         peak_active = (
             latest_grid_warning is not None
-            and latest_grid_warning.get("action") == "active"
+            and latest_grid_warning.get("action") in ("active", "household")
         )
         opted_out_ids = set(
             latest_grid_warning.get("opted_out", [])

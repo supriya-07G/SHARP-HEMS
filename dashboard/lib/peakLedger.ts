@@ -19,7 +19,8 @@ export interface PeakLedgerEntry {
 
 export type PeakLedger = Record<string, PeakLedgerEntry>;
 
-export type PeakPhase = 'none' | 'warning' | 'active';
+/** 'household' is this house's own peak with no grid peak. */
+export type PeakPhase = 'none' | 'warning' | 'active' | 'household';
 
 export interface GridWarningState {
   phase: PeakPhase;
@@ -78,7 +79,9 @@ export function applyWarning(
     [key]: {
       affected,
       optedOut,
-      reachedActive: prev.reachedActive || w.action === 'active',
+      // Shedding happened under either kind of peak.
+      reachedActive:
+        prev.reachedActive || w.action === 'active' || w.action === 'household',
       ended: prev.ended || w.action === 'cancel',
     },
   };

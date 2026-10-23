@@ -76,8 +76,16 @@ export interface RuntimeHealth {
  */
 export interface GridWarningPayload {
   schema_version: 'sharp_grid_warning_v1';
-  action: 'warning' | 'active' | 'cancel';
+  /**
+   * warning   - grid peak declared; luxury loads shed at shed_at
+   * active    - grid peak; luxury loads shed
+   * household - this house's own peak, no grid peak; luxury shed here only
+   * cancel    - no peak of either kind
+   */
+  action: 'warning' | 'active' | 'household' | 'cancel';
   house_id: string;
+  grid_phase?: 'NONE' | 'WARNING' | 'ACTIVE';
+  household_peak?: boolean;
   severity: number;
   /** IST ISO time the warning began. Identifies the peak event. */
   warning_started_at: string | null;
@@ -95,7 +103,8 @@ function isGridWarning(value: unknown): value is GridWarningPayload {
   const w = value as Partial<GridWarningPayload>;
   return (
     w.schema_version === 'sharp_grid_warning_v1' &&
-    (w.action === 'warning' || w.action === 'active' || w.action === 'cancel')
+    (w.action === 'warning' || w.action === 'active' ||
+      w.action === 'household' || w.action === 'cancel')
   );
 }
 
