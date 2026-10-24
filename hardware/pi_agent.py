@@ -64,6 +64,14 @@ MANUAL_OVERRIDE_HOLD_SECONDS = int(
 
 GRID_PEAK_POLICY_THRESHOLD = float(os.getenv("GRID_PEAK_POLICY_THRESHOLD", "0.60"))
 
+# Demo-only override for explicitly marked mock HomeState payloads. This keeps
+# the RL model inference/logging, but makes the selected mock scenario determine
+# the final outputs. It never applies to ordinary live HomeState payloads.
+# Set MOCK_SCENARIO_OUTPUT_OVERRIDE=false to restore the normal RL/peak policy.
+MOCK_SCENARIO_OUTPUT_OVERRIDE = os.getenv(
+    "MOCK_SCENARIO_OUTPUT_OVERRIDE", "true"
+).lower() in ("1", "true", "yes", "on")
+
 # Live weather older than this cannot override RL weather features.
 WEATHER_MAX_AGE_SECONDS = int(
     os.getenv("WEATHER_MAX_AGE_SECONDS", "3600")
@@ -1730,6 +1738,31 @@ def handle_rl_state(client, payload_text):
         household_peak,
         opted,
     )
+
+    # Demo contract: when the operator publishes an explicitly marked mock
+    # scenario, its appliance levels are the final requested output pattern.
+    # The PKL inference and peak-policy calculations still run and are logged,
+    # but this opt-in demo override wins for mapped devices so normal reliably
+    # restores NORMAL_CURRENT and peak reliably sets ALL_ON. Ordinary live
+    # HomeState payloads have no mock_scenario and are unaffected.
+    mock_scenario = payload.get("mock_scenario")
+    if MOCK_SCENARIO_OUTPUT_OVERRIDE and mock_scenario:
+        scenario_overrides = {}
+        for slot, appliance in slot_to_appliance.items():
+            appliance_id = appliance.get("appliance_id")
+            scenario_level = appliance.get("level")
+            if scenario_level not in (0, 1, 2):
+                continue
+            actions[slot] = int(scenario_level)
+            scenario_overrides[appliance_id] = (
+                f"mock_scenario_output_override:{mock_scenario}"
+            )
+        grid_peak_overrides.update(scenario_overrides)
+        print(
+            f"🎬 MOCK SCENARIO OUTPUT OVERRIDE → {mock_scenario}; "
+            f"final levels follow published scenario for "
+            f"{len(scenario_overrides)} mapped devices"
+        )
 
     print(
         f"⚡ PEAK POLICY → grid {'PEAK' if grid_shed else peak_phase}, "
