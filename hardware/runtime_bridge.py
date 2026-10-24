@@ -37,7 +37,9 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
 MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "websockets").strip().lower()
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8884" if MQTT_TRANSPORT == "websockets" else "8883"))
+MQTT_WS_PATH = os.getenv("MQTT_WS_PATH", "/mqtt")
 MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASS = os.getenv("MQTT_PASS")
 HOUSE_ID = os.getenv("HOUSE_ID", "demo")
@@ -491,7 +493,11 @@ def main():
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"sharp-runtime-bridge-{HOUSE_ID}",
+        transport=MQTT_TRANSPORT,
     )
+
+    if MQTT_TRANSPORT == "websockets":
+        client.ws_set_options(path=MQTT_WS_PATH)
 
     client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
@@ -516,6 +522,9 @@ def main():
     print("=" * 68)
     print("SHARP LIVE RUNTIME BRIDGE")
     print("=" * 68)
+    print(f"Broker      : {MQTT_HOST}:{MQTT_PORT} ({MQTT_TRANSPORT})")
+    if MQTT_TRANSPORT == "websockets":
+        print(f"WS path     : {MQTT_WS_PATH}")
     print(f"Input state : {STATE_TOPIC}")
     print(f"Runtime     : {RUNTIME_TOPIC}")
     print(f"GPIO ACKs   : {ACK_SUB}")
