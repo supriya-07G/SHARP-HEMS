@@ -15,17 +15,12 @@ export const WeatherCard: React.FC<WeatherCardProps> = ({
   onWeatherUpdate,
   className = '',
 }) => {
-  const [displayWeather, setDisplayWeather] = useState<WeatherData | undefined>(
-    weather,
-  );
-  const [isLoading, setIsLoading] = useState(false);
+  // A reading fetched by this card. Runtime weather, when present, stays
+  // authoritative; the fetched one fills in until it arrives.
+  const [fetched, setFetched] = useState<WeatherData | undefined>(undefined);
+  const displayWeather = weather ?? fetched;
+  const [isLoading, setIsLoading] = useState(!weather);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (weather) {
-      setDisplayWeather(weather);
-    }
-  }, [weather]);
 
   const loadLiveWeather = useCallback(async () => {
     setIsLoading(true);
@@ -37,7 +32,7 @@ export const WeatherCard: React.FC<WeatherCardProps> = ({
       // Show the successful server response immediately. The same API request
       // also publishes the reading to HiveMQ server-side; runtime_bridge.py
       // will later echo it back inside home/<house>/runtime.
-      setDisplayWeather(live);
+      setFetched(live);
       onWeatherUpdate?.(live);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Weather unavailable');
@@ -47,13 +42,28 @@ export const WeatherCard: React.FC<WeatherCardProps> = ({
   }, [onWeatherUpdate]);
 
   // A live-weather card should populate itself on first render rather than
-  // requiring a manual click. Existing runtime weather remains authoritative
-  // when it is already present.
+  // requiring a manual click. State changes only after the request answers.
   useEffect(() => {
-    if (!weather) {
-      void loadLiveWeather();
-    }
-  }, [weather, loadLiveWeather]);
+    if (weather) return;
+    let cancelled = false;
+    fetchLiveGunturWeather()
+      .then((live) => {
+        if (cancelled) return;
+        setFetched(live);
+        onWeatherUpdate?.(live);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Weather unavailable');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [weather, onWeatherUpdate]);
 
   return (
     <div

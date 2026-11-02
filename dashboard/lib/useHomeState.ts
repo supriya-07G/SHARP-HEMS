@@ -16,6 +16,7 @@ import {
   PiAck,
   RuntimeHealth,
 } from './mqtt';
+import { DemoScenarioId, ScenarioActive } from './scenarios';
 import {
   applyWarning,
   GridWarningState,
@@ -155,6 +156,10 @@ export interface UseHomeStateReturn {
    * has accepted the surcharge; the Pi registers the opt-out on receipt.
    */
   confirmKeepOn: (applianceId: string) => Promise<CommandAck>;
+  /** What the Pi's scenario service last reported applying, if anything. */
+  scenarioActive: ScenarioActive | null;
+  /** Ask the Pi's scenario service to apply a scenario. Resolves to an error message, or null. */
+  chooseScenario: (scenario: DemoScenarioId) => Promise<string | null>;
 }
 
 function peakFromState(state: HomeState): PeakEvent {
@@ -208,6 +213,8 @@ export function useHomeState(): UseHomeStateReturn {
   const [gridWarning, setGridWarning] =
     useState<GridWarningState>(NO_GRID_WARNING);
   const [peakLedger, setPeakLedger] = useState<PeakLedger>({});
+  const [scenarioActive, setScenarioActive] =
+    useState<ScenarioActive | null>(null);
 
   useEffect(() => {
     // Read after mount so server and first client render agree.
@@ -256,7 +263,9 @@ export function useHomeState(): UseHomeStateReturn {
                   ...app,
                   level: ack.applied_level as ActionLevel,
                   gpio_state: ack.gpio_state,
-                  actuation_verified: true,
+                  // Only a real pin readback counts; a simulated ACK
+                  // must never show "GPIO Readback MATCH".
+                  actuation_verified: ack.gpio_readback_verified === true,
                   measured_w: ack.measured_w,
                 }
               : app,
@@ -273,7 +282,10 @@ export function useHomeState(): UseHomeStateReturn {
       rejected_reason: ack.rejected_reason,
       gpio_state: ack.gpio_state,
       measured_w: ack.measured_w,
-      verification: ack.verification,
+      // No meter is fitted on the rig, so the ACK can never confirm the
+      // appliance itself; GPIO readback vs simulation is in `simulated`.
+      verification: 'NO_METER',
+      simulated: ack.gpio_readback_verified !== true,
       acked_at: ack.acked_at,
       latency_ms: ack.latency_ms,
       delivery_stage: 'hardware',
@@ -320,6 +332,7 @@ export function useHomeState(): UseHomeStateReturn {
       onPiHealth: setPiHealth,
       onRuntimeHealth: setRuntimeHealth,
       onGridWarning: handleGridWarning,
+      onScenarioActive: setScenarioActive,
     });
 
     return disconnect;
@@ -490,6 +503,24 @@ export function useHomeState(): UseHomeStateReturn {
     [triggerOverride],
   );
 
+  const chooseScenario = useCallback(
+    async (scenario: DemoScenarioId): Promise<string | null> => {
+      try {
+        const res = await fetch('/api/scenario', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ scenario }),
+        });
+        if (res.ok) return null;
+        const body = await res.json().catch(() => ({}));
+        return body?.error ?? `Request failed (${res.status})`;
+      } catch {
+        return 'Could not reach the dashboard server.';
+      }
+    },
+    [],
+  );
+
   const { optedOutEvents, participatedEvents } = ledgerCounts(peakLedger);
   const piOnline = piHealth?.status === 'online';
 
@@ -523,5 +554,7 @@ export function useHomeState(): UseHomeStateReturn {
     optedOutEvents,
     participatedEvents,
     confirmKeepOn,
+    scenarioActive,
+    chooseScenario,
   };
 }

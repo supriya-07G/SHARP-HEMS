@@ -1,7 +1,12 @@
 # Runbook — peak scenarios on the SHARP rig
 
 How to run the four peak scenarios end to end: Raspberry Pi agent, runtime
-bridge, dashboard, and the mock house state.
+bridge, scenario service, and the dashboard.
+
+**Product mode is the normal way to run SHARP** (section 0): set the Pi up
+once, then everything is done from the dashboard. The Pi and the laptop do not
+need the same Wi-Fi, and nobody has to SSH in. The manual SSH commands are
+kept as a fallback (section 3).
 
 ## The four scenarios
 
@@ -25,20 +30,80 @@ bridge, dashboard, and the mock house state.
   running. The surcharge is a proposal, not an APCPDCL tariff today.
 - `peak` is an older name for `grid_peak` and still works.
 
+## 0. Product mode: set up once, then use only the dashboard
+
+Three services run on the Pi and start at every boot:
+
+| Service | Script | Job |
+|---|---|---|
+| `sharp-pi-agent` | `hardware/pi_agent.py` | GPIO, RL policy, safety shield |
+| `sharp-runtime-bridge` | `hardware/runtime_bridge.py` | What the dashboard displays |
+| `sharp-scenario` | `hardware/scenario_service.py` | Applies the scenario chosen on the dashboard |
+
+Each one restarts if it stops and keeps retrying until the broker answers, so
+a slow Wi-Fi at boot is fine. Everything travels through HiveMQ Cloud: the Pi
+only needs internet, on any Wi-Fi it knows.
+
+### One-time install (on the Pi, over SSH)
+
+```bash
+cd ~/SHARP-HEMS
+git status --short                      # must print nothing; tell the team if it lists files
+git fetch origin
+git checkout <the merged branch> && git pull
+source .venv/bin/activate
+pip install -r hardware/requirements_pi.txt
+sed -i 's/^MQTT_PORT=.*/MQTT_PORT=8884/' .env     # WebSockets port
+grep -q '^MQTT_TRANSPORT=' .env || echo 'MQTT_TRANSPORT=websockets' >> .env
+bash hardware/install_services.sh
+```
+
+The installer checks the virtualenv, the packages, `.env` and the port before
+it changes anything, and stops with the exact fix if one is wrong. It also
+stops any copies started by hand, so nothing runs twice.
+
+### Every day after that
+
+1. Power on the Pi. Within about a minute the dashboard header reads **live**.
+2. **Technical → House scenario:** pick Normal, Household peak, Grid peak or
+   Grid + household peak. The card shows what the Pi actually applied
+   ("Active: … · applied HH:MM:SS IST").
+3. **Grid Control:** declare or cancel a grid peak (severity 0.60 or more).
+4. **My Home:** watch the appliances, respond to the peak notice, check the bill.
+
+The last scenario chosen is kept on the broker, so a Pi that reboots resumes
+it. With none chosen it starts in Normal.
+
+### Check or control the services (over SSH, when needed)
+
+```bash
+systemctl status sharp-pi-agent sharp-runtime-bridge sharp-scenario --no-pager
+journalctl -u sharp-pi-agent -n 50 --no-pager        # last 50 agent log lines
+journalctl -u sharp-pi-agent -f                      # follow live (Ctrl-C to stop)
+sudo systemctl restart sharp-pi-agent sharp-runtime-bridge sharp-scenario
+sudo systemctl disable --now sharp-pi-agent sharp-runtime-bridge sharp-scenario   # back to manual mode
+```
+
+After changing code (`git pull`), restart the three services.
+
 ## 1. One-time setup
 
 ### Broker settings (`.env` at the repo root, used by every Python script)
 
 ```bash
 MQTT_HOST=<your HiveMQ cluster host>
-MQTT_PORT=8883
+MQTT_TRANSPORT=websockets
+MQTT_PORT=8884
 MQTT_USER=<user>
 MQTT_PASS=<password>
-HOUSE_ID=house_01
+HOUSE_ID=demo
 ```
 
-The scripts connect over TLS (port 8883). `HOUSE_ID` must be the same here and
-in the dashboard's `NEXT_PUBLIC_HOUSE_ID`, or the dashboard will never see the
+The scripts connect over secure WebSockets on port 8884, which passes networks
+that block MQTT's usual port 8883. (`MQTT_TRANSPORT=tcp` with `MQTT_PORT=8883`
+still works where 8883 is open.) WebSockets on 8883 never connects; the
+installer refuses that combination. `HOUSE_ID` must be the same here and in
+the dashboard's `NEXT_PUBLIC_HOUSE_ID`, or the dashboard will never see the
 house.
 
 ### Pi-only settings (add to the Pi's `.env`)
@@ -99,11 +164,20 @@ From the repo root, on the Pi or a laptop:
 python hardware/test_pkl_mock.py        # model loads; 4 scenarios give the right luxury outcome
 python hardware/test_peak_warning.py    # warning -> active -> cancel/expiry, bridge lockout, OLED text
 python hardware/test_four_scenarios.py  # all 4 scenarios through the Pi's message handlers
+python hardware/test_scenario_service.py # dashboard scenario requests -> house state
 ```
 
 Each one ends with a `✅ … PASSED` / `OK` line. If any fails, stop here.
 
-## 3. Start the system (in this order)
+## 3. Fallback: start the system by hand (over SSH)
+
+Use this only if product mode is not installed, or a service will not start.
+If the services are installed, stop them first, or every command is answered
+twice:
+
+```bash
+sudo systemctl stop sharp-pi-agent sharp-runtime-bridge sharp-scenario
+```
 
 Start the Pi agent and bridge **before** publishing any house state. The mock
 state is not retained, so a process that is not running yet misses it.
@@ -128,7 +202,8 @@ Wait until the agent logs `✅ Connected to HiveMQ` and the bridge is online.
 
 ## 4. Run each scenario
 
-Publish a scenario from any machine with the repo and `.env`:
+In product mode, pick the scenario on **Technical → House scenario**. In
+manual mode (section 3), publish it from any machine with the repo and `.env`:
 
 ```bash
 python hardware/mock_rl_state.py --scenario <name> --publish
@@ -227,6 +302,8 @@ not from button taps, and are kept per calendar month.
 | `home/<house>/override/<appliance>` | dashboard                   | Resident switch / *Keep on*                                          |
 | `home/<house>/intent`               | `pi_agent.py`               | RL proposal and the policy overrides applied                         |
 | `home/<house>/runtime`              | `runtime_bridge.py` (retained) | What the dashboard shows, incl. `peak_locked_out`                 |
+| `home/<house>/scenario/set`         | dashboard `/api/scenario` (retained) | Scenario chosen on the dashboard                          |
+| `home/<house>/scenario/active`      | `scenario_service.py` (retained) | Scenario the Pi actually applied, and when                      |
 
 The `intent` message's `shield_reasons` says why each luxury load ended up
 where it did: `grid_peak_luxury_shed`, `household_peak_luxury_shed`,
@@ -236,6 +313,8 @@ where it did: `grid_peak_luxury_shed`, `household_peak_luxury_shed`,
 
 | Symptom | Likely cause |
 |---|---|
+| `socket.gaierror: Temporary failure in name resolution` (old code), or `🌐 Cannot resolve …` repeating (current code) | The Pi has no working DNS/internet: a network problem, not SHARP code. On the Pi: `ping -c 2 8.8.8.8` (internet?), then `getent hosts <MQTT_HOST>` (DNS?). The agent and bridge keep retrying and connect by themselves once the network works |
+| Pi banner says `Hold : 900s after resident override` | The Pi is running old code. Copy the current `hardware/` folder to it (see below) |
 | Dashboard stuck on "Waiting for Raspberry Pi telemetry" | `runtime_bridge.py` not running, or `NEXT_PUBLIC_HOUSE_ID` ≠ `HOUSE_ID` |
 | Publishing a scenario changes nothing | Agent/bridge started after the publish (state isn't retained): publish again |
 | Grid peak declared but nothing happens | Severity below 0.60, or the 40-second warning is still running |
@@ -246,3 +325,21 @@ where it did: `grid_peak_luxury_shed`, `household_peak_luxury_shed`,
 | No RL decisions at all | `RL_ENABLED=false`, or the model file is missing (agent logs `❌ RL enabled but model is not loaded`) |
 | OLED blank | I2C off, wrong address, or `luma.oled`/`pillow` not installed (agent logs `⚠️ OLED unavailable`) |
 | Grid peak shows on the dashboard but the Pi ignores it | Pi and dashboard on different `HOUSE_ID`s |
+
+## 8. Getting the current code onto the Pi without GitHub
+
+The Pi and the laptop do **not** need to share a network to run SHARP: each
+only needs internet to reach the HiveMQ broker. Copying code is different.
+
+If the Pi cannot reach GitHub (no DNS) or the branch is not pushed yet, join
+the laptop to the **same Wi-Fi as the Pi** for a minute and copy the
+`hardware/` folder over it. `pi.local` works on that network even without
+internet. From PowerShell on the laptop:
+
+```bash
+scp -r "C:\Users\SUPRIYA\SHARP_Master_Dataset\.claude\worktrees\continue-changes-18e03d\hardware" pi@pi.local:~/SHARP-HEMS/
+```
+
+This overwrites the Pi's `~/SHARP-HEMS/hardware/` files with the laptop's;
+the Pi's `.env` and `models/` are not touched. Check it worked: the agent
+banner should say `Hold   : none - RL decides every appliance on every state`.

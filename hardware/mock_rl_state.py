@@ -41,7 +41,9 @@ load_dotenv(ROOT / ".env")
 
 HOUSE_ID = os.getenv("HOUSE_ID", "demo")
 MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "websockets").strip().lower()
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8884" if MQTT_TRANSPORT == "websockets" else "8883"))
+MQTT_WS_PATH = os.getenv("MQTT_WS_PATH", "/mqtt")
 MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASS = os.getenv("MQTT_PASS")
 
@@ -490,7 +492,10 @@ def publish(payload):
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"sharp-mock-state-{int(time.time())}",
+        transport=MQTT_TRANSPORT,
     )
+    if MQTT_TRANSPORT == "websockets":
+        client.ws_set_options(path=MQTT_WS_PATH)
     client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
 

@@ -1,5 +1,6 @@
 import os
 import json
+import socket
 import ssl
 import time
 import uuid
@@ -24,7 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
 MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "websockets").strip().lower()
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8884" if MQTT_TRANSPORT == "websockets" else "8883"))
+MQTT_WS_PATH = os.getenv("MQTT_WS_PATH", "/mqtt")
 MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASS = os.getenv("MQTT_PASS")
 HOUSE_ID = os.getenv("HOUSE_ID", "demo")
@@ -1910,6 +1913,33 @@ def on_message(client, userdata, msg):
 # MAIN
 # ============================================================
 
+def connect_with_retry(client, host, port, keepalive):
+    """Connect to the broker, waiting out a missing network instead of exiting.
+
+    A Pi on Wi-Fi often starts before DNS works. paho's connect() raises on
+    that first attempt - reconnect_delay_set only covers drops after a
+    successful connect - so without this the script dies with
+    "Temporary failure in name resolution" and has to be restarted by hand.
+    """
+    delay = 2
+    while True:
+        try:
+            client.connect(host, port, keepalive=keepalive)
+            return
+        except socket.gaierror:
+            print(
+                f"🌐 Cannot resolve {host}: this machine has no working DNS. "
+                f"Retrying in {delay}s (Ctrl-C to stop)"
+            )
+        except OSError as exc:
+            print(
+                f"🌐 Cannot reach {host}:{port} ({exc}). "
+                f"Retrying in {delay}s (Ctrl-C to stop)"
+            )
+        time.sleep(delay)
+        delay = min(delay * 2, 30)
+
+
 def main():
     global rl_policy
 
@@ -1941,7 +1971,11 @@ def main():
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id="sharp-pi-agent-" + HOUSE_ID,
+        transport=MQTT_TRANSPORT,
     )
+
+    if MQTT_TRANSPORT == "websockets":
+        client.ws_set_options(path=MQTT_WS_PATH)
 
     client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
@@ -1965,7 +1999,9 @@ def main():
     print("=" * 72)
     print("SHARP RASPBERRY PI ACTUATOR AGENT — FINAL 10-DEVICE RIG")
     print("=" * 72)
-    print(f"Broker : {MQTT_HOST}:{MQTT_PORT}")
+    print(f"Broker : {MQTT_HOST}:{MQTT_PORT} ({MQTT_TRANSPORT})")
+    if MQTT_TRANSPORT == "websockets":
+        print(f"WS path: {MQTT_WS_PATH}")
     print(f"House  : {HOUSE_ID}")
     print(f"GPIO   : {'REAL' if GPIO_ENABLED else 'SIMULATED'}")
     print(
@@ -1996,11 +2032,7 @@ def main():
     print("=" * 72)
 
     try:
-        client.connect(
-            MQTT_HOST,
-            MQTT_PORT,
-            keepalive=60,
-        )
+        connect_with_retry(client, MQTT_HOST, MQTT_PORT, keepalive=60)
 
         print("Waiting for dashboard/RL commands...")
         client.loop_forever()

@@ -98,8 +98,10 @@ export function Panel4Appliances({
               <p className="text-xs text-slate-600">
                 {lastAck.accepted ? (
                   <>
-                    Actuation verified via GPIO readback (
-                    {lastAck.verification}). Round-trip latency:{' '}
+                    {lastAck.simulated
+                      ? 'Applied in simulation: GPIO is disabled on this agent, so no pin was switched.'
+                      : 'GPIO pin set and read back. No meter is fitted, so the appliance itself is not confirmed.'}{' '}
+                    Round-trip latency:{' '}
                     <strong className="font-mono text-[#0f2d4a]">
                       {lastAck.latency_ms} ms
                     </strong>

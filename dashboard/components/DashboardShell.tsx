@@ -81,6 +81,8 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
     optedOutEvents,
     participatedEvents,
     confirmKeepOn,
+    scenarioActive,
+    chooseScenario,
   } = useHomeState();
 
   if (!homeState) {
@@ -231,6 +233,8 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
                 activeScenario={activeScenario}
                 onScenarioChange={setScenario}
                 initialTab={initialTab as TechTab}
+                scenarioActive={scenarioActive}
+                onChooseScenario={chooseScenario}
               />
             )}
           </div>

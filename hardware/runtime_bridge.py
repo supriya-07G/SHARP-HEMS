@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import socket
 import ssl
 import time
 from datetime import datetime
@@ -37,7 +38,9 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
 MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "websockets").strip().lower()
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8884" if MQTT_TRANSPORT == "websockets" else "8883"))
+MQTT_WS_PATH = os.getenv("MQTT_WS_PATH", "/mqtt")
 MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASS = os.getenv("MQTT_PASS")
 HOUSE_ID = os.getenv("HOUSE_ID", "demo")
@@ -151,6 +154,9 @@ confirmed = {
         "level": None,
         "gpio_state": None,
         "ack_received": False,
+        # Level the Pi last ACCEPTED, readback or not. Shown as the intended
+        # level of an unverified appliance; never counted as measured load.
+        "accepted_level": None,
         "gpio_readback_verified": False,
         "acked_at": None,
         "verification": "NO_ACK",
@@ -219,9 +225,14 @@ def build_runtime_state() -> dict | None:
             power_estimate = round(power_w, 3)
         else:
             # Keep a display-friendly intended level, but explicitly mark it
-            # unverified and do not count it as hardware-derived load.
+            # unverified and do not count it as hardware-derived load. The
+            # Pi's last accepted command beats the model input: it is what the
+            # agent decided (e.g. a peak shed), even without pin readback.
             source_level = source.get("level")
-            level = int(source_level) if source_level in (0, 1, 2) else 0
+            if hw["ack_received"] and hw["accepted_level"] in (0, 1, 2):
+                level = int(hw["accepted_level"])
+            else:
+                level = int(source_level) if source_level in (0, 1, 2) else 0
             gpio_state = None
             state_basis = (
                 "accepted_command_without_gpio_readback"
@@ -452,6 +463,12 @@ def on_message(client, userdata, msg):
             confirmed[appliance_id]["verification"] = payload.get(
                 "verification", "UNSPECIFIED"
             )
+            try:
+                confirmed[appliance_id]["accepted_level"] = int(
+                    payload.get("applied_level", 0) or 0
+                )
+            except (TypeError, ValueError):
+                pass
 
             # Never trust an ACK from a simulated Windows agent as hardware state.
             # GPIO readback still verifies only the pin, not appliance operation.
@@ -470,6 +487,33 @@ def on_message(client, userdata, msg):
 
         publish_runtime(client)
         publish_bridge_health(client)
+
+
+def connect_with_retry(client, host, port, keepalive):
+    """Connect to the broker, waiting out a missing network instead of exiting.
+
+    A Pi on Wi-Fi often starts before DNS works. paho's connect() raises on
+    that first attempt - reconnect_delay_set only covers drops after a
+    successful connect - so without this the script dies with
+    "Temporary failure in name resolution" and has to be restarted by hand.
+    """
+    delay = 2
+    while True:
+        try:
+            client.connect(host, port, keepalive=keepalive)
+            return
+        except socket.gaierror:
+            print(
+                f"🌐 Cannot resolve {host}: this machine has no working DNS. "
+                f"Retrying in {delay}s (Ctrl-C to stop)"
+            )
+        except OSError as exc:
+            print(
+                f"🌐 Cannot reach {host}:{port} ({exc}). "
+                f"Retrying in {delay}s (Ctrl-C to stop)"
+            )
+        time.sleep(delay)
+        delay = min(delay * 2, 30)
 
 
 def main():
@@ -491,7 +535,11 @@ def main():
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"sharp-runtime-bridge-{HOUSE_ID}",
+        transport=MQTT_TRANSPORT,
     )
+
+    if MQTT_TRANSPORT == "websockets":
+        client.ws_set_options(path=MQTT_WS_PATH)
 
     client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
@@ -516,6 +564,9 @@ def main():
     print("=" * 68)
     print("SHARP LIVE RUNTIME BRIDGE")
     print("=" * 68)
+    print(f"Broker      : {MQTT_HOST}:{MQTT_PORT} ({MQTT_TRANSPORT})")
+    if MQTT_TRANSPORT == "websockets":
+        print(f"WS path     : {MQTT_WS_PATH}")
     print(f"Input state : {STATE_TOPIC}")
     print(f"Runtime     : {RUNTIME_TOPIC}")
     print(f"GPIO ACKs   : {ACK_SUB}")
@@ -525,10 +576,10 @@ def main():
     print("Power       : GPIO-confirmed estimate; measured_w remains null")
     print("=" * 68)
 
-    client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
-    client.loop_start()
-
     try:
+        connect_with_retry(client, MQTT_HOST, MQTT_PORT, keepalive=60)
+        client.loop_start()
+
         while True:
             publish_runtime(client)
             publish_bridge_health(client)

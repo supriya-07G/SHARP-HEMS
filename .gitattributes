@@ -1,0 +1,5 @@
+# Files the Raspberry Pi runs must keep Linux line endings, even when
+# checked out on Windows: a CRLF shell script or unit file fails on the Pi.
+*.sh text eol=lf
+*.service text eol=lf
+hardware/*.py text eol=lf

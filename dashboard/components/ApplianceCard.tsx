@@ -110,9 +110,14 @@ export function ApplianceCard({
 
           <div className="mt-0.5 flex items-baseline gap-1">
             <span className="font-mono text-sm font-bold text-[#17365D]">
-              {isRunning
-                ? appliance.power_15min_mean_w.toFixed(1)
-                : '0.0'}
+              {/* The bridge sends null until the Pi's pin readback confirms
+                  the state; never invent a number for it. */}
+              {!isRunning
+                ? '0.0'
+                : typeof appliance.power_15min_mean_w === 'number' &&
+                    Number.isFinite(appliance.power_15min_mean_w)
+                  ? appliance.power_15min_mean_w.toFixed(1)
+                  : '—'}
             </span>
 
             <span className="font-mono text-[10px] text-[#6b7c93]">
