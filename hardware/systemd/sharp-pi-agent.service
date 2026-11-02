@@ -1,0 +1,19 @@
+[Unit]
+Description=SHARP Raspberry Pi agent (GPIO, RL policy, safety shield)
+# Start once Wi-Fi is up; the script itself also retries until the broker
+# answers, so a slow network at boot is fine.
+Wants=network-online.target
+After=network-online.target
+# Never stop retrying.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=__DIR__/.venv/bin/python -u hardware/pi_agent.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

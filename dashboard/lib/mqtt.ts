@@ -9,6 +9,7 @@
 
 import mqtt, { MqttClient } from 'mqtt';
 import { Feed, HomeState, Intent, WeatherData } from './contracts';
+import { isScenarioActive, ScenarioActive } from './scenarios';
 
 const HOUSE = process.env.NEXT_PUBLIC_HOUSE_ID ?? 'demo';
 const STALE_AFTER_SECONDS = 20;
@@ -19,6 +20,7 @@ const ACK_TOPIC = `home/${HOUSE}/actuator/+/ack`;
 const PI_HEALTH_TOPIC = `home/${HOUSE}/health/pi`;
 const RUNTIME_HEALTH_TOPIC = `home/${HOUSE}/health/runtime`;
 const GRID_WARNING_TOPIC = `home/${HOUSE}/grid/warning`;
+const SCENARIO_ACTIVE_TOPIC = `home/${HOUSE}/scenario/active`;
 
 function isHomeState(value: unknown): value is HomeState {
   if (!value || typeof value !== 'object') return false;
@@ -52,7 +54,13 @@ export interface PiAck {
     | 'MISMATCH_STILL_DRAWING'
     | 'MISMATCH_NOT_DRAWING'
     | 'MISMATCH_WRONG_LEVEL'
-    | 'NO_METER';
+    | 'NO_METER'
+    // What pi_agent.py sends today: the pin was set and read back, or
+    // GPIO is disabled and the command was only simulated.
+    | 'GPIO_READBACK_ONLY'
+    | 'SIMULATED_NO_GPIO';
+  /** True only when the Pi set the pin AND read it back. */
+  gpio_readback_verified?: boolean;
   acked_at: string;
   latency_ms: number;
 }
@@ -114,6 +122,7 @@ export interface FeedHandlers {
   onPiHealth?: (health: RuntimeHealth) => void;
   onRuntimeHealth?: (health: RuntimeHealth) => void;
   onGridWarning?: (warning: GridWarningPayload) => void;
+  onScenarioActive?: (active: ScenarioActive) => void;
 }
 
 export function connectFeed({
@@ -122,6 +131,7 @@ export function connectFeed({
   onPiHealth,
   onRuntimeHealth,
   onGridWarning,
+  onScenarioActive,
 }: FeedHandlers): () => void {
   let lastRuntimeMessage = 0;
   let client: MqttClient | null = null;
@@ -175,6 +185,7 @@ export function connectFeed({
       PI_HEALTH_TOPIC,
       RUNTIME_HEALTH_TOPIC,
       GRID_WARNING_TOPIC,
+      SCENARIO_ACTIVE_TOPIC,
     ];
 
     client?.subscribe(topics, { qos: 1 }, (error) => {
@@ -211,7 +222,13 @@ export function connectFeed({
           return;
         }
 
-        lastRuntimeMessage = Date.now();
+        // Age comes from when the bridge MADE the message, not when it
+        // arrived: a retained message from a bridge that has since stopped
+        // arrives instantly but is old, and must show as stale.
+        const madeAt = Date.parse(parsed.timestamp_ist);
+        lastRuntimeMessage = Number.isNaN(madeAt)
+          ? Date.now()
+          : Math.min(Date.now(), madeAt);
         emit('live', parsed, null);
         return;
       }
@@ -222,6 +239,11 @@ export function connectFeed({
           return;
         }
         onGridWarning?.(parsed);
+        return;
+      }
+
+      if (topic === SCENARIO_ACTIVE_TOPIC) {
+        if (isScenarioActive(parsed)) onScenarioActive?.(parsed);
         return;
       }
 

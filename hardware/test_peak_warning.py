@@ -148,7 +148,34 @@ def main():
     time.sleep(1.5)
     assert pi_agent.peak_phase == "NONE", "cancelled timer must not fire"
 
+    check_connect_retry()
     print("✅ peak warning flow OK")
+
+
+def check_connect_retry():
+    """No DNS at start-up must not kill the agent or the bridge."""
+    import socket
+
+    for module in (pi_agent, runtime_bridge):
+        class FlakyClient:
+            attempts = 0
+
+            def connect(self, host, port, keepalive=60):
+                self.attempts += 1
+                if self.attempts <= 2:
+                    raise socket.gaierror(
+                        -3, "Temporary failure in name resolution"
+                    )
+
+        client = FlakyClient()
+        real_sleep = module.time.sleep
+        module.time.sleep = lambda seconds: None
+        try:
+            module.connect_with_retry(client, "broker.example", 8883, 60)
+        finally:
+            module.time.sleep = real_sleep
+        assert client.attempts == 3, (module.__name__, client.attempts)
+    print("✅ agent and bridge wait out a DNS failure, then connect")
 
 
 if __name__ == "__main__":

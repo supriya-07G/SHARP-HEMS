@@ -33,6 +33,8 @@ interface ResidentViewProps {
   initialTab?: FeatureTab;
   pendingAppliances: Set<string>;
   gridWarning: GridWarningState;
+  /** False when the Pi agent's health is offline: switches cannot apply. */
+  piOnline: boolean;
   optedOutEvents: number;
   participatedEvents: number;
   /** Keep a flexible load on through the peak, after surcharge consent. */
@@ -49,6 +51,7 @@ export function ResidentView({
   initialTab = 'overview',
   pendingAppliances,
   gridWarning,
+  piOnline,
   optedOutEvents,
   participatedEvents,
   onConfirmKeepOn,
@@ -143,6 +146,20 @@ export function ResidentView({
         applianceCount={homeState.appliances.length}
         protectedCount={protectedCount}
       />
+
+      {!piOnline && (
+        <section
+          role="status"
+          className="rounded-[18px] p-4 text-[13px]"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--navy)' }}
+        >
+          <strong>Raspberry Pi agent is offline.</strong>{' '}
+          <span style={{ color: 'var(--slate)' }}>
+            Appliance states below are the last ones reported. Switches will
+            not apply until the Pi reconnects.
+          </span>
+        </section>
+      )}
 
       {/* Grid Peak Notice alert stays visible on all tabs if active */}
       {gridWarning.phase !== 'none' && !alertDismissed && (

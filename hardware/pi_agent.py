@@ -1,5 +1,6 @@
 import os
 import json
+import socket
 import ssl
 import time
 import uuid
@@ -24,7 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
 MQTT_HOST = os.getenv("MQTT_HOST")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "websockets").strip().lower()
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8884" if MQTT_TRANSPORT == "websockets" else "8883"))
+MQTT_WS_PATH = os.getenv("MQTT_WS_PATH", "/mqtt")
 MQTT_USER = os.getenv("MQTT_USER")
 MQTT_PASS = os.getenv("MQTT_PASS")
 HOUSE_ID = os.getenv("HOUSE_ID", "demo")
@@ -58,11 +61,29 @@ PKL_MODEL_PATH = Path(
     )
 )
 
-MANUAL_OVERRIDE_HOLD_SECONDS = int(
-    os.getenv("MANUAL_OVERRIDE_HOLD_SECONDS", "900")
-)
-
 GRID_PEAK_POLICY_THRESHOLD = float(os.getenv("GRID_PEAK_POLICY_THRESHOLD", "0.60"))
+
+# Demo-only override for explicitly marked mock HomeState payloads. This keeps
+# the RL model inference/logging, but makes the selected mock scenario determine
+# the final outputs. It never applies to ordinary live HomeState payloads.
+# OFF by default: when on, the household peak never sheds and a resident's
+# switch in Normal is undone at the next state. The luxury peak policy
+# already gives "all on, then shed". Set MOCK_SCENARIO_OUTPUT_OVERRIDE=true
+# to turn it on.
+MOCK_SCENARIO_OUTPUT_OVERRIDE = os.getenv(
+    "MOCK_SCENARIO_OUTPUT_OVERRIDE", "false"
+).lower() in ("1", "true", "yes", "on")
+
+# Demo-only peak handover: show all outputs ON, then hand control to the
+# peak policy and PKL inference after a short, configurable delay - without
+# any grid peak being declared. OFF by default: the grid peak comes only from
+# the Grid Controller. Set MOCK_PEAK_HANDOVER_ENABLED=true to turn it on.
+MOCK_PEAK_HANDOVER_ENABLED = os.getenv(
+    "MOCK_PEAK_HANDOVER_ENABLED", "false"
+).lower() in ("1", "true", "yes", "on")
+MOCK_PEAK_HANDOVER_SECONDS = max(
+    1, int(os.getenv("MOCK_PEAK_HANDOVER_SECONDS", "10"))
+)
 
 # Live weather older than this cannot override RL weather features.
 WEATHER_MAX_AGE_SECONDS = int(
@@ -93,10 +114,10 @@ GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
 GRID_WARNING_TOPIC = f"home/{HOUSE_ID}/grid/warning"
 
-# Notice before a declared grid peak sheds luxury loads. 40 s for the demo;
+# Notice before a declared grid peak sheds luxury loads. 10 s for the demo;
 # set PEAK_WARNING_SECONDS=600 for the real 10-minute notice.
 PEAK_WARNING_SECONDS = int(
-    os.getenv("PEAK_WARNING_SECONDS", "40")
+    os.getenv("PEAK_WARNING_SECONDS", "10")
 )
 
 # Proposed per-device opt-out charge, mirrored from the dashboard's
@@ -222,7 +243,11 @@ last_applied_levels = {
     for device_id in DEVICES
 }
 
-manual_override_until = {}
+# The resident's last switch per appliance. The RL loop always decides for
+# every appliance (there is no manual hold); these choices are inputs to the
+# policy. Cleared when a different scenario is published.
+resident_levels = {}
+resident_levels_scenario = None
 rl_policy = None
 active_grid_event = None
 latest_weather = None
@@ -242,6 +267,10 @@ peak_shed_at_mono = 0.0          # monotonic deadline for the OLED countdown
 # This house's own household peak, reported in its HomeState. Independent of
 # the grid: it sheds luxury loads in this house only.
 household_peak_active = False
+
+# State for the mock Peak -> automatic-control demonstration.
+mock_peak_handover_timer = None
+mock_peak_handover_active = False
 
 
 # ============================================================
@@ -1498,13 +1527,11 @@ def handle_override(client, payload):
 
     if appliance_id in DEVICES and requested_level in (0, 1):
         with state_lock:
-            manual_override_until[appliance_id] = (
-                time.monotonic() + MANUAL_OVERRIDE_HOLD_SECONDS
-            )
+            resident_levels[appliance_id] = int(requested_level)
 
         print(
-            f"🧑 Manual authority hold → {appliance_id} for "
-            f"{MANUAL_OVERRIDE_HOLD_SECONDS}s"
+            f"🧑 Resident choice → {appliance_id} "
+            f"{LEVEL_NAMES[int(requested_level)]} (RL keeps running)"
         )
 
         # Track peak billing opt-out
@@ -1549,7 +1576,8 @@ def handle_override(client, payload):
 # ============================================================
 
 def handle_rl_state(client, payload_text):
-    global rl_policy, last_rl_state_payload
+    global rl_policy, last_rl_state_payload, resident_levels_scenario
+    global mock_peak_handover_timer, mock_peak_handover_active
 
     if not RL_ENABLED:
         return
@@ -1564,8 +1592,23 @@ def handle_rl_state(client, payload_text):
         print("❌ Invalid HomeState JSON")
         return
 
-    # Cache for re-evaluation when grid events change
+    # Cache for re-evaluation when grid events change.
     last_rl_state_payload = payload_text
+
+    mock_scenario = payload.get("mock_scenario")
+    is_mock_peak = mock_scenario in (
+        "peak", "grid_peak", "grid_and_household_peak"
+    )
+
+    # A new Normal scenario cancels/resets the demo handover so the next Peak
+    # starts a fresh 10-second all-ON phase.
+    if mock_scenario == "normal":
+        with state_lock:
+            timer = mock_peak_handover_timer
+            mock_peak_handover_timer = None
+            mock_peak_handover_active = False
+        if timer is not None:
+            timer.cancel()
 
     raw_state = payload.get("state_vector")
 
@@ -1599,6 +1642,16 @@ def handle_rl_state(client, payload_text):
     # The grid peak is established only by the Grid Controller's declared
     # event; a severity carried in the state itself is not a grid peak.
     grid_severity = effective_grid_severity() or 0.0
+    if is_mock_peak and mock_peak_handover_active:
+        # The mock Peak scenario explicitly supplies this trained feature.
+        # This demo-only context is not treated as a live grid-controller event.
+        try:
+            grid_severity = max(
+                grid_severity,
+                float(payload.get("grid_peak_severity", 0.0)),
+            )
+        except (TypeError, ValueError):
+            pass
 
     # Feature index 5 is obs_grid_peak_severity in the frozen 305-feature
     # training contract. Everything else remains from the state builder.
@@ -1617,9 +1670,16 @@ def handle_rl_state(client, payload_text):
     supports_reduced = np.zeros(N_BRANCHES, dtype=bool)
     occupant_wants = np.zeros(N_BRANCHES, dtype=bool)
 
+    # A different scenario resets the house to that scenario's baseline.
+    scenario = payload.get("mock_scenario")
+    with state_lock:
+        if scenario != resident_levels_scenario:
+            if resident_levels:
+                print(f"🔄 Scenario {scenario} → resident choices reset")
+            resident_levels.clear()
+            resident_levels_scenario = scenario
+
     slot_to_appliance = {}
-    held_appliances = {}
-    now_mono = time.monotonic()
 
     for appliance in appliances:
         appliance_id = appliance.get("appliance_id")
@@ -1644,19 +1704,6 @@ def handle_rl_state(client, payload_text):
             print(f"⏭️ RL skipped: duplicate slot {slot}")
             return
 
-        with state_lock:
-            hold_until = manual_override_until.get(appliance_id, 0.0)
-
-        if hold_until > now_mono:
-            held_appliances[appliance_id] = {
-                "slot": slot,
-                "remaining_s": round(hold_until - now_mono, 1),
-            }
-            continue
-
-        with state_lock:
-            manual_override_until.pop(appliance_id, None)
-
         slot_to_appliance[slot] = appliance
         device_present[slot] = True
         is_necessity[slot] = bool(DEVICES[appliance_id]["necessity"])
@@ -1668,16 +1715,10 @@ def handle_rl_state(client, payload_text):
         )
 
     if not slot_to_appliance:
-        if held_appliances:
-            print(
-                "⏸️ RL state received, but all mapped devices are under "
-                "manual hold"
-            )
-        else:
-            print(
-                "⏭️ RL skipped: no wired appliances have valid training "
-                "slot values"
-            )
+        print(
+            "⏭️ RL skipped: no wired appliances have valid training "
+            "slot values"
+        )
         return
 
     started = time.perf_counter()
@@ -1694,42 +1735,76 @@ def handle_rl_state(client, payload_text):
         print(f"❌ RL inference failed: {exc}")
         return
 
-    # Mock scenarios fix essential loads at their scenario level (normal:
-    # fridge, ceiling fan and both lights on). Luxury loads follow the peak
-    # policy below. The RL model still runs above and its proposal is logged.
-    if payload.get("mock_scenario"):
-        for slot, appliance in slot_to_appliance.items():
-            if appliance.get("appliance_id") in PEAK_FLEXIBLE_LOADS:
-                continue
-            actions[slot] = int(appliance.get("level", 0))
-
     with state_lock:
-        grid_shed = peak_phase == "ACTIVE"
+        chosen = dict(resident_levels)
+        grid_shed = (
+            peak_phase == "ACTIVE"
+            or (is_mock_peak and mock_peak_handover_active)
+        )
         household_peak = household_peak_active
         opted = set(peak_opted_out)
-        # A load is "on" if the scenario has it on or the Pi has switched it
-        # on (e.g. a resident turned the AC on from the dashboard).
-        live_levels = {}
-        for appliance in slot_to_appliance.values():
-            appliance_id = appliance.get("appliance_id")
-            pi_level = (
-                current_levels.get(appliance_id, 0)
-                if last_applied_levels.get(appliance_id) is not None
-                else 0
+
+    # What each appliance should be, before any peak: the resident's own
+    # switch if they used it, otherwise the house state's level.
+    desired = {
+        appliance["appliance_id"]: int(
+            chosen.get(
+                appliance["appliance_id"],
+                appliance.get("level", 0),
             )
-            live_levels[appliance_id] = max(
-                int(appliance.get("level", 0)),
-                int(pi_level),
-            )
+        )
+        for appliance in slot_to_appliance.values()
+    }
+
+    # Essential loads: the resident's switch wins (they may always switch
+    # their own appliance); mock scenarios otherwise fix them at the
+    # scenario level (normal: fridge, ceiling fan, both lights on). Luxury
+    # loads follow the peak policy below. The RL proposal is logged either
+    # way.
+    for slot, appliance in slot_to_appliance.items():
+        appliance_id = appliance.get("appliance_id")
+        if appliance_id in PEAK_FLEXIBLE_LOADS:
+            continue
+        if appliance_id in chosen or payload.get("mock_scenario"):
+            actions[slot] = desired[appliance_id]
 
     actions, grid_peak_overrides = apply_luxury_peak_policy(
         actions,
         slot_to_appliance,
-        live_levels,
+        desired,
         grid_shed,
         household_peak,
         opted,
     )
+
+    # Demo contract: when the operator publishes an explicitly marked mock
+    # scenario, its appliance levels are the final requested output pattern.
+    # The PKL inference and peak-policy calculations still run and are logged,
+    # but this opt-in demo override wins for mapped devices so normal reliably
+    # restores NORMAL_CURRENT and peak reliably sets ALL_ON. Ordinary live
+    # HomeState payloads have no mock_scenario and are unaffected.
+    mock_handover_is_over = is_mock_peak and mock_peak_handover_active
+    if (
+        MOCK_SCENARIO_OUTPUT_OVERRIDE
+        and mock_scenario
+        and not mock_handover_is_over
+    ):
+        scenario_overrides = {}
+        for slot, appliance in slot_to_appliance.items():
+            appliance_id = appliance.get("appliance_id")
+            scenario_level = appliance.get("level")
+            if scenario_level not in (0, 1, 2):
+                continue
+            actions[slot] = int(scenario_level)
+            scenario_overrides[appliance_id] = (
+                f"mock_scenario_output_override:{mock_scenario}"
+            )
+        grid_peak_overrides.update(scenario_overrides)
+        print(
+            f"🎬 MOCK SCENARIO OUTPUT OVERRIDE → {mock_scenario}; "
+            f"final levels follow published scenario for "
+            f"{len(scenario_overrides)} mapped devices"
+        )
 
     print(
         f"⚡ PEAK POLICY → grid {'PEAK' if grid_shed else peak_phase}, "
@@ -1743,15 +1818,6 @@ def handle_rl_state(client, payload_text):
     proposed = {}
     executed = {}
     shield_reasons = {}
-
-    for appliance_id, info in held_appliances.items():
-        with state_lock:
-            executed[appliance_id] = int(
-                current_levels.get(appliance_id, 0)
-            )
-        shield_reasons[appliance_id] = [
-            f"manual_override_hold:{info['remaining_s']}s"
-        ]
 
     print()
     print("🤖 PKL RL DECISION")
@@ -1827,6 +1893,49 @@ def handle_rl_state(client, payload_text):
 
     print(f"⚡ PKL inference: {latency_ms:.3f} ms")
 
+    # Schedule only after the initial Peak outputs have been commanded.
+    # When the timer fires, re-run inference on the cached Peak state. During
+    # that pass the all-ON scenario override is bypassed and the peak policy
+    # sheds flexible loads while the existing shield protects essential loads.
+    if is_mock_peak and MOCK_PEAK_HANDOVER_ENABLED:
+        with state_lock:
+            if (
+                not mock_peak_handover_active
+                and mock_peak_handover_timer is None
+            ):
+                timer = threading.Timer(
+                    MOCK_PEAK_HANDOVER_SECONDS,
+                    _activate_mock_peak_handover,
+                    args=[client],
+                )
+                timer.daemon = True
+                mock_peak_handover_timer = timer
+                timer.start()
+
+
+def _activate_mock_peak_handover(client):
+    global mock_peak_handover_timer, mock_peak_handover_active
+
+    with state_lock:
+        mock_peak_handover_timer = None
+        try:
+            latest = json.loads(last_rl_state_payload) if last_rl_state_payload else {}
+        except json.JSONDecodeError:
+            latest = {}
+
+        if latest.get("mock_scenario") not in (
+            "peak", "grid_peak", "grid_and_household_peak"
+        ):
+            return
+
+        mock_peak_handover_active = True
+
+    print(
+        f"⏱️ MOCK PEAK TIMER: {MOCK_PEAK_HANDOVER_SECONDS}s elapsed; "
+        "handing control to PKL inference + peak policy"
+    )
+    _replay_rl(client)
+
 
 # ============================================================
 # MQTT CALLBACKS
@@ -1865,6 +1974,10 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
     print(f"📡 Subscribed → {GRID_EVENT_TOPIC}")
     print(f"📡 Subscribed → {WEATHER_TOPIC}")
+
+    # Replace any retained peak status left by an earlier run, so the
+    # dashboard never shows a countdown this process is not running.
+    publish_peak_status(client)
 
     client.publish(
         HEALTH_TOPIC,
@@ -1927,6 +2040,33 @@ def on_message(client, userdata, msg):
 # MAIN
 # ============================================================
 
+def connect_with_retry(client, host, port, keepalive):
+    """Connect to the broker, waiting out a missing network instead of exiting.
+
+    A Pi on Wi-Fi often starts before DNS works. paho's connect() raises on
+    that first attempt - reconnect_delay_set only covers drops after a
+    successful connect - so without this the script dies with
+    "Temporary failure in name resolution" and has to be restarted by hand.
+    """
+    delay = 2
+    while True:
+        try:
+            client.connect(host, port, keepalive=keepalive)
+            return
+        except socket.gaierror:
+            print(
+                f"🌐 Cannot resolve {host}: this machine has no working DNS. "
+                f"Retrying in {delay}s (Ctrl-C to stop)"
+            )
+        except OSError as exc:
+            print(
+                f"🌐 Cannot reach {host}:{port} ({exc}). "
+                f"Retrying in {delay}s (Ctrl-C to stop)"
+            )
+        time.sleep(delay)
+        delay = min(delay * 2, 30)
+
+
 def main():
     global rl_policy
 
@@ -1958,7 +2098,11 @@ def main():
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id="sharp-pi-agent-" + HOUSE_ID,
+        transport=MQTT_TRANSPORT,
     )
+
+    if MQTT_TRANSPORT == "websockets":
+        client.ws_set_options(path=MQTT_WS_PATH)
 
     client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
@@ -1982,7 +2126,9 @@ def main():
     print("=" * 72)
     print("SHARP RASPBERRY PI ACTUATOR AGENT — FINAL 10-DEVICE RIG")
     print("=" * 72)
-    print(f"Broker : {MQTT_HOST}:{MQTT_PORT}")
+    print(f"Broker : {MQTT_HOST}:{MQTT_PORT} ({MQTT_TRANSPORT})")
+    if MQTT_TRANSPORT == "websockets":
+        print(f"WS path: {MQTT_WS_PATH}")
     print(f"House  : {HOUSE_ID}")
     print(f"GPIO   : {'REAL' if GPIO_ENABLED else 'SIMULATED'}")
     print(
@@ -2008,19 +2154,12 @@ def main():
     if RL_ENABLED:
         print(f"Model  : {PKL_MODEL_PATH}")
         print(f"State  : {STATE_TOPIC}")
-        print(
-            f"Hold   : {MANUAL_OVERRIDE_HOLD_SECONDS}s "
-            "after resident override"
-        )
+        print("Hold   : none - RL decides every appliance on every state")
 
     print("=" * 72)
 
     try:
-        client.connect(
-            MQTT_HOST,
-            MQTT_PORT,
-            keepalive=60,
-        )
+        connect_with_retry(client, MQTT_HOST, MQTT_PORT, keepalive=60)
 
         print("Waiting for dashboard/RL commands...")
         client.loop_forever()

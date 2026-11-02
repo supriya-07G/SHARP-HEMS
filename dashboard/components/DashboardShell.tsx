@@ -77,9 +77,12 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
     piHealth,
     runtimeHealth,
     gridWarning,
+    piOnline,
     optedOutEvents,
     participatedEvents,
     confirmKeepOn,
+    scenarioActive,
+    chooseScenario,
   } = useHomeState();
 
   if (!homeState) {
@@ -206,6 +209,7 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
                 initialTab={initialTab as FeatureTab}
                 pendingAppliances={pendingAppliances}
                 gridWarning={gridWarning}
+                piOnline={piOnline}
                 optedOutEvents={optedOutEvents}
                 participatedEvents={participatedEvents}
                 onConfirmKeepOn={confirmKeepOn}
@@ -229,6 +233,8 @@ export function DashboardShell({ initialRole = DEFAULT_ROLE, initialTab }: Props
                 activeScenario={activeScenario}
                 onScenarioChange={setScenario}
                 initialTab={initialTab as TechTab}
+                scenarioActive={scenarioActive}
+                onChooseScenario={chooseScenario}
               />
             )}
           </div>

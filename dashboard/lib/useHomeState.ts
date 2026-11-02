@@ -16,6 +16,7 @@ import {
   PiAck,
   RuntimeHealth,
 } from './mqtt';
+import { DemoScenarioId, ScenarioActive } from './scenarios';
 import {
   applyWarning,
   GridWarningState,
@@ -24,6 +25,10 @@ import {
   PeakLedger,
   warningState,
 } from './peakLedger';
+
+// A switch waits this long for the Pi's ACK before it is reported as not
+// applied, so it can never sit at PENDING forever when the Pi is offline.
+const ACK_TIMEOUT_MS = 15_000;
 
 // Per-browser record of peak events seen. A convenience so the bill survives
 // a reload; the Pi's retained warning remains the source of truth.
@@ -140,6 +145,8 @@ export interface UseHomeStateReturn {
   runtimeHealth: RuntimeHealth | null;
   /** Peak phase from the Pi: warning countdown, then active shed. */
   gridWarning: GridWarningState;
+  /** The Pi agent's own health says online. Switches need it. */
+  piOnline: boolean;
   /** Device-events kept on through a peak this month (surcharged). */
   optedOutEvents: number;
   /** Peak events this month ridden through with a load paused (credited). */
@@ -149,6 +156,10 @@ export interface UseHomeStateReturn {
    * has accepted the surcharge; the Pi registers the opt-out on receipt.
    */
   confirmKeepOn: (applianceId: string) => Promise<CommandAck>;
+  /** What the Pi's scenario service last reported applying, if anything. */
+  scenarioActive: ScenarioActive | null;
+  /** Ask the Pi's scenario service to apply a scenario. Resolves to an error message, or null. */
+  chooseScenario: (scenario: DemoScenarioId) => Promise<string | null>;
 }
 
 function peakFromState(state: HomeState): PeakEvent {
@@ -202,6 +213,8 @@ export function useHomeState(): UseHomeStateReturn {
   const [gridWarning, setGridWarning] =
     useState<GridWarningState>(NO_GRID_WARNING);
   const [peakLedger, setPeakLedger] = useState<PeakLedger>({});
+  const [scenarioActive, setScenarioActive] =
+    useState<ScenarioActive | null>(null);
 
   useEffect(() => {
     // Read after mount so server and first client render agree.
@@ -219,8 +232,20 @@ export function useHomeState(): UseHomeStateReturn {
   }, []);
 
   const handleAckRef = useRef<((ack: PiAck) => void) | null>(null);
+  const ackTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const timers = ackTimers.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
 
   const handleAck = useCallback((ack: PiAck) => {
+    const timer = ackTimers.current.get(ack.appliance_id);
+    if (timer) {
+      clearTimeout(timer);
+      ackTimers.current.delete(ack.appliance_id);
+    }
+
     setPendingAppliances((prev) => {
       const next = new Set(prev);
       next.delete(ack.appliance_id);
@@ -238,7 +263,9 @@ export function useHomeState(): UseHomeStateReturn {
                   ...app,
                   level: ack.applied_level as ActionLevel,
                   gpio_state: ack.gpio_state,
-                  actuation_verified: true,
+                  // Only a real pin readback counts; a simulated ACK
+                  // must never show "GPIO Readback MATCH".
+                  actuation_verified: ack.gpio_readback_verified === true,
                   measured_w: ack.measured_w,
                 }
               : app,
@@ -255,14 +282,19 @@ export function useHomeState(): UseHomeStateReturn {
       rejected_reason: ack.rejected_reason,
       gpio_state: ack.gpio_state,
       measured_w: ack.measured_w,
-      verification: ack.verification,
+      // No meter is fitted on the rig, so the ACK can never confirm the
+      // appliance itself; GPIO readback vs simulation is in `simulated`.
+      verification: 'NO_METER',
+      simulated: ack.gpio_readback_verified !== true,
       acked_at: ack.acked_at,
       latency_ms: ack.latency_ms,
       delivery_stage: 'hardware',
     });
   }, []);
 
-  handleAckRef.current = handleAck;
+  useEffect(() => {
+    handleAckRef.current = handleAck;
+  }, [handleAck]);
 
   useEffect(() => {
     const disconnect = connectFeed({
@@ -300,6 +332,7 @@ export function useHomeState(): UseHomeStateReturn {
       onPiHealth: setPiHealth,
       onRuntimeHealth: setRuntimeHealth,
       onGridWarning: handleGridWarning,
+      onScenarioActive: setScenarioActive,
     });
 
     return disconnect;
@@ -379,6 +412,32 @@ export function useHomeState(): UseHomeStateReturn {
         return next;
       });
 
+      const previousTimer = ackTimers.current.get(applianceId);
+      if (previousTimer) clearTimeout(previousTimer);
+      ackTimers.current.set(applianceId, setTimeout(() => {
+        ackTimers.current.delete(applianceId);
+        setPendingAppliances((prev) => {
+          if (!prev.has(applianceId)) return prev;
+          const next = new Set(prev);
+          next.delete(applianceId);
+          return next;
+        });
+        setLastAck({
+          command_id:
+            result.command?.override_id ?? `no-reply-${Date.now()}`,
+          appliance_id: applianceId,
+          accepted: false,
+          applied_level: currentApp?.level ?? 0,
+          rejected_reason: 'PI_NO_RESPONSE',
+          gpio_state: currentApp?.gpio_state ?? 0,
+          measured_w: null,
+          verification: 'NO_METER',
+          acked_at: new Date().toISOString(),
+          latency_ms: Date.now() - t0,
+          delivery_stage: 'broker',
+        });
+      }, ACK_TIMEOUT_MS));
+
       return {
         command_id:
           result.command?.override_id ?? `dispatched-${Date.now()}`,
@@ -444,7 +503,26 @@ export function useHomeState(): UseHomeStateReturn {
     [triggerOverride],
   );
 
+  const chooseScenario = useCallback(
+    async (scenario: DemoScenarioId): Promise<string | null> => {
+      try {
+        const res = await fetch('/api/scenario', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ scenario }),
+        });
+        if (res.ok) return null;
+        const body = await res.json().catch(() => ({}));
+        return body?.error ?? `Request failed (${res.status})`;
+      } catch {
+        return 'Could not reach the dashboard server.';
+      }
+    },
+    [],
+  );
+
   const { optedOutEvents, participatedEvents } = ledgerCounts(peakLedger);
+  const piOnline = piHealth?.status === 'online';
 
   // Weather is authoritative only after it returns through the MQTT runtime
   // stream. Do not mutate the displayed HomeState optimistically.
@@ -469,9 +547,14 @@ export function useHomeState(): UseHomeStateReturn {
     history,
     piHealth,
     runtimeHealth,
-    gridWarning,
+    // A retained peak status from a Pi that is now offline describes a
+    // countdown nobody is running; show no peak until the Pi is back.
+    gridWarning: piOnline ? gridWarning : NO_GRID_WARNING,
+    piOnline,
     optedOutEvents,
     participatedEvents,
     confirmKeepOn,
+    scenarioActive,
+    chooseScenario,
   };
 }

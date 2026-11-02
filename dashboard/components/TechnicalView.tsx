@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { HomeState, PeakEvent } from '@/lib/contracts';
 import { TechQuickNav, TechTab } from './TechQuickNav';
 import { WeatherCard } from './WeatherCard';
+import { ScenarioPanel } from './ScenarioPanel';
+import { DemoScenarioId, ScenarioActive } from '@/lib/scenarios';
 
 const LEAD_TIME = { min: 5, max: 15, step: 5, default: 15 };
 
@@ -13,6 +15,8 @@ interface Props {
   activeScenario?: 'normal' | 'peak' | 'outage';
   onScenarioChange?: (scenario: 'normal' | 'peak' | 'outage') => void;
   initialTab?: TechTab;
+  scenarioActive: ScenarioActive | null;
+  onChooseScenario: (scenario: DemoScenarioId) => Promise<string | null>;
 }
 
 function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -34,7 +38,9 @@ function Row({ label, value, hint }: { label: string; value: string; hint?: stri
   );
 }
 
-export function TechnicalView({ homeState, peakEvent, initialTab = 'policy' }: Props) {
+export function TechnicalView({
+  homeState, peakEvent, initialTab = 'policy', scenarioActive, onChooseScenario,
+}: Props) {
   const [activeTab, setActiveTab] = useState<TechTab>(initialTab);
   const [leadTime, setLeadTime] = useState(LEAD_TIME.default);
 
@@ -46,6 +52,8 @@ export function TechnicalView({ homeState, peakEvent, initialTab = 'policy' }: P
         onTabChange={setActiveTab}
         leadTimeMinutes={leadTime}
       />
+
+      <ScenarioPanel active={scenarioActive} onChoose={onChooseScenario} />
 
       {/* ---------------- TAB 1: POLICY MODEL ---------------- */}
       {activeTab === 'policy' && (

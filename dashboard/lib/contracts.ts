@@ -137,6 +137,11 @@ export interface CommandAck {
    * HiveMQ but the Raspberry Pi has not acknowledged GPIO actuation yet.
    */
   delivery_stage?: 'local' | 'broker' | 'hardware';
+  /**
+   * UI-only. True when the Pi accepted the command but drives no real GPIO
+   * (GPIO_ENABLED=false), so nothing physical switched.
+   */
+  simulated?: boolean;
 }
 
 export interface OverrideRequest {

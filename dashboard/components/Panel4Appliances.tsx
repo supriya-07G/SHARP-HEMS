@@ -15,6 +15,7 @@ import {
 } from '@/lib/contracts';
 
 import { ApplianceCard } from './ApplianceCard';
+import { ackReasonText, ackTitle } from '@/lib/ackText';
 
 interface Panel4AppliancesProps {
   appliances: ApplianceState[];
@@ -83,9 +84,7 @@ export function Panel4Appliances({
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold">
-                  {lastAck.accepted
-                    ? 'COMMAND ACCEPTED'
-                    : 'COMMAND REJECTED'}
+                  {ackTitle(lastAck)}
                 </span>
 
                 <span className="font-mono text-[11px] text-slate-500">
@@ -99,21 +98,17 @@ export function Panel4Appliances({
               <p className="text-xs text-slate-600">
                 {lastAck.accepted ? (
                   <>
-                    Actuation verified via GPIO readback (
-                    {lastAck.verification}). Round-trip latency:{' '}
+                    {lastAck.simulated
+                      ? 'Applied in simulation: GPIO is disabled on this agent, so no pin was switched.'
+                      : 'GPIO pin set and read back. No meter is fitted, so the appliance itself is not confirmed.'}{' '}
+                    Round-trip latency:{' '}
                     <strong className="font-mono text-[#0f2d4a]">
                       {lastAck.latency_ms} ms
                     </strong>
                     .
                   </>
                 ) : (
-                  <>
-                    Refused by Safety Shield:{' '}
-                    <strong className="font-mono text-[#0f2d4a]">
-                      {lastAck.rejected_reason}
-                    </strong>
-                    . Critical loads cannot be disconnected.
-                  </>
+                  ackReasonText(lastAck)
                 )}
               </p>
             </div>

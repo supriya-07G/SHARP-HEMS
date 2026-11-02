@@ -71,8 +71,6 @@ def resident(client, appliance_id, level):
         "appliance_id": appliance_id,
         "requested_level": level,
     }))
-    # Let the RL loop act on it again straight away, as after the hold.
-    pi_agent.manual_override_until.clear()
 
 
 def on(*ids):
@@ -110,6 +108,33 @@ def main():
     )
     assert client.last_status() is None, "no peak status in normal"
 
+    # No manual hold: the RL loop decides for every appliance on every state,
+    # including ones the resident just switched.
+    before = len(client.published)
+    send_state(client, "normal")
+    intents = [
+        p for t, p in client.published[before:]
+        if t == pi_agent.INTENT_TOPIC
+    ]
+    assert intents, "RL must run"
+    decided = set(intents[-1]["proposed"])
+    assert decided == set(pi_agent.DEVICES), (
+        f"RL skipped appliances: {set(pi_agent.DEVICES) - decided}"
+    )
+    assert not any(
+        "manual_override_hold" in r
+        for reasons in intents[-1]["shield_reasons"].values()
+        for r in reasons
+    )
+    print("✅ RL decides all 10 appliances, no manual hold")
+
+    # The resident may switch their own essential load off; RL keeps it off.
+    resident(client, "led_tube_01", 0)
+    send_state(client, "normal")
+    expect("resident switched Light 2 off: it stays off", [], ["led_tube_01"])
+    resident(client, "led_tube_01", 1)
+    send_state(client, "normal")
+
     # 2) Household peak, no grid peak.
     send_state(client, "household_peak")
     assert client.last_status()["action"] == "household"
@@ -129,12 +154,11 @@ def main():
     assert status["action"] == "cancel"
     assert status["opted_out"] == ["air_conditioner_01"]
     assert pi_agent.peak_opted_out == set()
-    # Back to the house state: the TV returns; the paid AC stays on; the EV
-    # the peak shed stays off until the resident switches it on again.
+    # A different scenario resets the house to that scenario's baseline.
     expect(
-        "household peak ended: TV back on, paid AC still on, EV stays off",
-        ESSENTIAL + ["television_01", "air_conditioner_01"],
-        ["ev_charger_01"],
+        "household peak ended: back to the normal baseline",
+        ESSENTIAL + ["television_01"],
+        ["air_conditioner_01", "ev_charger_01"],
     )
 
     # 3) Grid peak, no household peak. All on until the dashboard declares.
@@ -143,7 +167,7 @@ def main():
 
     grid_event(client, "declare", 0.85)
     assert client.last_status()["action"] == "warning"
-    expect("grid warning: luxury still on for 10 min", ESSENTIAL + LUXURY, [])
+    expect("grid warning: luxury still on until it ends", ESSENTIAL + LUXURY, [])
 
     resident(client, "ev_charger_01", 1)
     time.sleep(1.5)
