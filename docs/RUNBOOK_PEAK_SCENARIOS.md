@@ -13,7 +13,7 @@ kept as a fallback (section 3).
 | Scenario (`--scenario`)   | Grid peak | Household peak | Luxury loads (AC, EV, washer, mixer, TV) |
 |---------------------------|-----------|----------------|-------------------------------------------|
 | `grid_and_household_peak` | yes       | yes            | shed                                      |
-| `grid_peak`               | yes       | no             | shed after the 40-second warning          |
+| `grid_peak`               | yes       | no             | shed after the 10-second warning          |
 | `household_peak`          | no        | yes            | shed in this house only                   |
 | `normal`                  | no        | no             | left exactly as they are                  |
 
@@ -55,6 +55,7 @@ source .venv/bin/activate
 pip install -r hardware/requirements_pi.txt
 sed -i 's/^MQTT_PORT=.*/MQTT_PORT=8884/' .env     # WebSockets port
 grep -q '^MQTT_TRANSPORT=' .env || echo 'MQTT_TRANSPORT=websockets' >> .env
+sed -i 's/^PEAK_WARNING_SECONDS=.*/PEAK_WARNING_SECONDS=10/' .env   # 10-second resident countdown
 bash hardware/install_services.sh
 ```
 
@@ -112,13 +113,19 @@ house.
 GPIO_ENABLED=true
 RL_ENABLED=true
 OLED_ENABLED=true
-# Warning before a grid peak sheds luxury loads. Default 40 s (demo).
+# Warning before a grid peak sheds luxury loads. Default 10 s (demo).
 # Use 600 for the real 10-minute notice.
-PEAK_WARNING_SECONDS=40
+PEAK_WARNING_SECONDS=10
 ```
 
 Optional: `GRID_PEAK_POLICY_THRESHOLD` (default `0.60`): a declared severity
 below this is not a grid peak.
+
+Two teammate demo switches exist and are **off** by default, because each
+changes the agreed scenarios: `MOCK_PEAK_HANDOVER_ENABLED=true` sheds luxury
+loads 10 s after a grid scenario starts even with no declared peak;
+`MOCK_SCENARIO_OUTPUT_OVERRIDE=true` forces outputs to the scenario's starting
+levels (the household peak then never sheds).
 
 There is **no manual hold**. The RL loop decides for all ten appliances on
 every state it receives. A resident's switch is remembered as their choice and
@@ -259,8 +266,8 @@ On http://localhost:3000/grid:
 2. Pick a duration (30, 60, 90 or 120 min).
 3. Press **PUBLISH GRID EVENT**.
 
-**Expect, warning phase:** Pi logs `⚠️ PEAK WARNING → 40s before luxury loads
-are shed`. The dashboard counts down from 00:40. The OLED shows
+**Expect, warning phase:** Pi logs `⚠️ PEAK WARNING → 10s before luxury loads
+are shed`. The dashboard counts down from 00:10. The OLED shows
 `Shed in MM:SS`. **All loads stay ON** during the warning. Residents can pay
 to keep loads on now.
 
@@ -317,7 +324,7 @@ where it did: `grid_peak_luxury_shed`, `household_peak_luxury_shed`,
 | Pi banner says `Hold : 900s after resident override` | The Pi is running old code. Copy the current `hardware/` folder to it (see below) |
 | Dashboard stuck on "Waiting for Raspberry Pi telemetry" | `runtime_bridge.py` not running, or `NEXT_PUBLIC_HOUSE_ID` ≠ `HOUSE_ID` |
 | Publishing a scenario changes nothing | Agent/bridge started after the publish (state isn't retained): publish again |
-| Grid peak declared but nothing happens | Severity below 0.60, or the 40-second warning is still running |
+| Grid peak declared but nothing happens | Severity below 0.60, or the 10-second warning is still running |
 | Luxury load never sheds in a peak | The resident paid for it (it is in `opted_out`), or the grid peak is still in its warning |
 | Header shows "N min old" / "MQTT DISCONNECTED (Retained State)" | `runtime_bridge.py` is not running: the dashboard is showing the last retained state |
 | "Raspberry Pi agent is offline" notice; switches report "No reply from the Raspberry Pi" after 15 s | `pi_agent.py` is not running or not connected |

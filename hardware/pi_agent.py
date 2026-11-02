@@ -63,6 +63,28 @@ PKL_MODEL_PATH = Path(
 
 GRID_PEAK_POLICY_THRESHOLD = float(os.getenv("GRID_PEAK_POLICY_THRESHOLD", "0.60"))
 
+# Demo-only override for explicitly marked mock HomeState payloads. This keeps
+# the RL model inference/logging, but makes the selected mock scenario determine
+# the final outputs. It never applies to ordinary live HomeState payloads.
+# OFF by default: when on, the household peak never sheds and a resident's
+# switch in Normal is undone at the next state. The luxury peak policy
+# already gives "all on, then shed". Set MOCK_SCENARIO_OUTPUT_OVERRIDE=true
+# to turn it on.
+MOCK_SCENARIO_OUTPUT_OVERRIDE = os.getenv(
+    "MOCK_SCENARIO_OUTPUT_OVERRIDE", "false"
+).lower() in ("1", "true", "yes", "on")
+
+# Demo-only peak handover: show all outputs ON, then hand control to the
+# peak policy and PKL inference after a short, configurable delay - without
+# any grid peak being declared. OFF by default: the grid peak comes only from
+# the Grid Controller. Set MOCK_PEAK_HANDOVER_ENABLED=true to turn it on.
+MOCK_PEAK_HANDOVER_ENABLED = os.getenv(
+    "MOCK_PEAK_HANDOVER_ENABLED", "false"
+).lower() in ("1", "true", "yes", "on")
+MOCK_PEAK_HANDOVER_SECONDS = max(
+    1, int(os.getenv("MOCK_PEAK_HANDOVER_SECONDS", "10"))
+)
+
 # Live weather older than this cannot override RL weather features.
 WEATHER_MAX_AGE_SECONDS = int(
     os.getenv("WEATHER_MAX_AGE_SECONDS", "3600")
@@ -92,10 +114,10 @@ GRID_EVENT_TOPIC = f"home/{HOUSE_ID}/grid/event"
 WEATHER_TOPIC = f"home/{HOUSE_ID}/weather"
 GRID_WARNING_TOPIC = f"home/{HOUSE_ID}/grid/warning"
 
-# Notice before a declared grid peak sheds luxury loads. 40 s for the demo;
+# Notice before a declared grid peak sheds luxury loads. 10 s for the demo;
 # set PEAK_WARNING_SECONDS=600 for the real 10-minute notice.
 PEAK_WARNING_SECONDS = int(
-    os.getenv("PEAK_WARNING_SECONDS", "40")
+    os.getenv("PEAK_WARNING_SECONDS", "10")
 )
 
 # Proposed per-device opt-out charge, mirrored from the dashboard's
@@ -245,6 +267,10 @@ peak_shed_at_mono = 0.0          # monotonic deadline for the OLED countdown
 # This house's own household peak, reported in its HomeState. Independent of
 # the grid: it sheds luxury loads in this house only.
 household_peak_active = False
+
+# State for the mock Peak -> automatic-control demonstration.
+mock_peak_handover_timer = None
+mock_peak_handover_active = False
 
 
 # ============================================================
@@ -1551,6 +1577,7 @@ def handle_override(client, payload):
 
 def handle_rl_state(client, payload_text):
     global rl_policy, last_rl_state_payload, resident_levels_scenario
+    global mock_peak_handover_timer, mock_peak_handover_active
 
     if not RL_ENABLED:
         return
@@ -1565,8 +1592,23 @@ def handle_rl_state(client, payload_text):
         print("❌ Invalid HomeState JSON")
         return
 
-    # Cache for re-evaluation when grid events change
+    # Cache for re-evaluation when grid events change.
     last_rl_state_payload = payload_text
+
+    mock_scenario = payload.get("mock_scenario")
+    is_mock_peak = mock_scenario in (
+        "peak", "grid_peak", "grid_and_household_peak"
+    )
+
+    # A new Normal scenario cancels/resets the demo handover so the next Peak
+    # starts a fresh 10-second all-ON phase.
+    if mock_scenario == "normal":
+        with state_lock:
+            timer = mock_peak_handover_timer
+            mock_peak_handover_timer = None
+            mock_peak_handover_active = False
+        if timer is not None:
+            timer.cancel()
 
     raw_state = payload.get("state_vector")
 
@@ -1600,6 +1642,16 @@ def handle_rl_state(client, payload_text):
     # The grid peak is established only by the Grid Controller's declared
     # event; a severity carried in the state itself is not a grid peak.
     grid_severity = effective_grid_severity() or 0.0
+    if is_mock_peak and mock_peak_handover_active:
+        # The mock Peak scenario explicitly supplies this trained feature.
+        # This demo-only context is not treated as a live grid-controller event.
+        try:
+            grid_severity = max(
+                grid_severity,
+                float(payload.get("grid_peak_severity", 0.0)),
+            )
+        except (TypeError, ValueError):
+            pass
 
     # Feature index 5 is obs_grid_peak_severity in the frozen 305-feature
     # training contract. Everything else remains from the state builder.
@@ -1685,7 +1737,10 @@ def handle_rl_state(client, payload_text):
 
     with state_lock:
         chosen = dict(resident_levels)
-        grid_shed = peak_phase == "ACTIVE"
+        grid_shed = (
+            peak_phase == "ACTIVE"
+            or (is_mock_peak and mock_peak_handover_active)
+        )
         household_peak = household_peak_active
         opted = set(peak_opted_out)
 
@@ -1721,6 +1776,35 @@ def handle_rl_state(client, payload_text):
         household_peak,
         opted,
     )
+
+    # Demo contract: when the operator publishes an explicitly marked mock
+    # scenario, its appliance levels are the final requested output pattern.
+    # The PKL inference and peak-policy calculations still run and are logged,
+    # but this opt-in demo override wins for mapped devices so normal reliably
+    # restores NORMAL_CURRENT and peak reliably sets ALL_ON. Ordinary live
+    # HomeState payloads have no mock_scenario and are unaffected.
+    mock_handover_is_over = is_mock_peak and mock_peak_handover_active
+    if (
+        MOCK_SCENARIO_OUTPUT_OVERRIDE
+        and mock_scenario
+        and not mock_handover_is_over
+    ):
+        scenario_overrides = {}
+        for slot, appliance in slot_to_appliance.items():
+            appliance_id = appliance.get("appliance_id")
+            scenario_level = appliance.get("level")
+            if scenario_level not in (0, 1, 2):
+                continue
+            actions[slot] = int(scenario_level)
+            scenario_overrides[appliance_id] = (
+                f"mock_scenario_output_override:{mock_scenario}"
+            )
+        grid_peak_overrides.update(scenario_overrides)
+        print(
+            f"🎬 MOCK SCENARIO OUTPUT OVERRIDE → {mock_scenario}; "
+            f"final levels follow published scenario for "
+            f"{len(scenario_overrides)} mapped devices"
+        )
 
     print(
         f"⚡ PEAK POLICY → grid {'PEAK' if grid_shed else peak_phase}, "
@@ -1808,6 +1892,49 @@ def handle_rl_state(client, payload_text):
         handle_command(client, json.dumps(command))
 
     print(f"⚡ PKL inference: {latency_ms:.3f} ms")
+
+    # Schedule only after the initial Peak outputs have been commanded.
+    # When the timer fires, re-run inference on the cached Peak state. During
+    # that pass the all-ON scenario override is bypassed and the peak policy
+    # sheds flexible loads while the existing shield protects essential loads.
+    if is_mock_peak and MOCK_PEAK_HANDOVER_ENABLED:
+        with state_lock:
+            if (
+                not mock_peak_handover_active
+                and mock_peak_handover_timer is None
+            ):
+                timer = threading.Timer(
+                    MOCK_PEAK_HANDOVER_SECONDS,
+                    _activate_mock_peak_handover,
+                    args=[client],
+                )
+                timer.daemon = True
+                mock_peak_handover_timer = timer
+                timer.start()
+
+
+def _activate_mock_peak_handover(client):
+    global mock_peak_handover_timer, mock_peak_handover_active
+
+    with state_lock:
+        mock_peak_handover_timer = None
+        try:
+            latest = json.loads(last_rl_state_payload) if last_rl_state_payload else {}
+        except json.JSONDecodeError:
+            latest = {}
+
+        if latest.get("mock_scenario") not in (
+            "peak", "grid_peak", "grid_and_household_peak"
+        ):
+            return
+
+        mock_peak_handover_active = True
+
+    print(
+        f"⏱️ MOCK PEAK TIMER: {MOCK_PEAK_HANDOVER_SECONDS}s elapsed; "
+        "handing control to PKL inference + peak policy"
+    )
+    _replay_rl(client)
 
 
 # ============================================================
